@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+
+  <Commands package="ClaudeCodePackage">
+    <Groups>
+      <!-- Group under the Tools top-level menu (always renders). -->
+      <Group guid="ClaudeCodeCmdSet" id="ClaudeToolsGroup" priority="0x0100">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+      <!-- Group under View > Other Windows. -->
+      <Group guid="ClaudeCodeCmdSet" id="ClaudeCodeMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="ClaudeCodeCmdSet" id="OpenClaudeChat" priority="0x0100" type="Button">
+        <Parent guid="ClaudeCodeCmdSet" id="ClaudeToolsGroup" />
+        <Strings>
+          <ButtonText>Claude Code</ButtonText>
+          <LocCanonicalName>.View.ClaudeCode</LocCanonicalName>
+        </Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+
+  <!-- Show the same command in several places so it is easy to find. -->
+  <CommandPlacements>
+    <CommandPlacement guid="ClaudeCodeCmdSet" id="OpenClaudeChat" priority="0x0100">
+      <Parent guid="ClaudeCodeCmdSet" id="ClaudeCodeMenuGroup" />
+    </CommandPlacement>
+  </CommandPlacements>
+
+  <Symbols>
+    <GuidSymbol name="ClaudeCodePackage" value="{15FC1958-19BD-4195-8BB9-AFD6DD0F334C}" />
+    <GuidSymbol name="ClaudeCodeCmdSet" value="{6DECCA05-E7F8-4DB9-9464-B88215C64A25}">
+      <IDSymbol name="ClaudeToolsGroup" value="0x1010" />
+      <IDSymbol name="ClaudeCodeMenuGroup" value="0x1020" />
+      <IDSymbol name="ClaudeToolbarGroup" value="0x1030" />
+      <IDSymbol name="OpenClaudeChat" value="0x0100" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>

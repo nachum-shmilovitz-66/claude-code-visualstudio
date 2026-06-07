@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src https: data: blob:; style-src 'unsafe-inline' https://claudecode.local; script-src https://claudecode.local; font-src https://claudecode.local; connect-src https://claudecode.local;" />
+  <link rel="stylesheet" href="style.css?v=4" />
+  <title>Claude Code</title>
+</head>
+<body>
+  <div id="app">
+    <header id="toolbar">
+      <div class="brand"><span class="logo">✳</span><span class="title">Claude Code</span></div>
+      <div class="actions">
+        <button id="modelBtn" class="tbtn" title="Select model">Model ▾</button>
+        <button id="contextBtn" class="tbtn" title="Context window usage">Context</button>
+        <button id="usageBtn" class="tbtn" title="Session usage &amp; cost">Usage</button>
+        <button id="newSessionBtn" class="tbtn" title="New session">＋</button>
+      </div>
+    </header>
+
+    <main id="messages" aria-live="polite"></main>
+
+    <div id="statusbar">
+      <span id="statusText">Ready</span>
+      <span id="usage"></span>
+    </div>
+
+    <footer id="composer">
+      <div id="attachments"></div>
+      <textarea id="input" rows="1" placeholder="Ask Claude to build, edit, or explain… (Enter to send, Shift+Enter for newline)"></textarea>
+      <div class="composer-bar">
+        <button id="plusBtn" class="cbtn" title="Add context / attach">＋</button>
+        <button id="slashBtn" class="cbtn" title="Slash commands">/</button>
+        <button id="ringBtn" class="ring" title="Context remaining">
+          <svg viewBox="0 0 36 36" width="20" height="20">
+            <circle class="ring-bg" cx="18" cy="18" r="15"></circle>
+            <circle id="ringFg" class="ring-fg" cx="18" cy="18" r="15"></circle>
+          </svg>
+        </button>
+        <span class="spacer"></span>
+        <button id="modeBtn" class="mode-pill" title="Permission mode &amp; effort">⚡ <span id="modeLabel">Auto</span></button>
+        <button id="sendBtn" class="send" title="Send (Enter)">Send</button>
+        <button id="stopBtn" class="stop hidden" title="Stop">■</button>
+      </div>
+    </footer>
+
+    <!-- floating layers -->
+    <div id="popover" class="popover hidden"></div>
+    <div id="cpop" class="cpop hidden"></div>
+  </div>
+
+  <script src="markdown.js?v=4"></script>
+  <script src="app.js?v=4"></script>
+</body>
+</html>
