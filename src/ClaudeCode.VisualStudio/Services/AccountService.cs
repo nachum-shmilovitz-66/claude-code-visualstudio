@@ -136,7 +136,11 @@ namespace ClaudeCode.VisualStudio.Services
                 {
                     var root = doc.RootElement;
 
-                    if (root.TryGetProperty("claudeAiOauthToken", out var oauth))
+                    // Claude Code stores credentials under "claudeAiOauth" or legacy "claudeAiOauthToken"
+                    JsonElement oauth;
+                    if (!root.TryGetProperty("claudeAiOauth", out oauth))
+                        root.TryGetProperty("claudeAiOauthToken", out oauth);
+                    if (oauth.ValueKind == JsonValueKind.Object)
                     {
                         if (oauth.TryGetProperty("accessToken", out var tok) && tok.ValueKind == JsonValueKind.String)
                         { authMethod = "Claude AI"; return tok.GetString(); }

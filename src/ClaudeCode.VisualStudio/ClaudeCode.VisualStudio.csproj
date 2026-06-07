@@ -23,6 +23,7 @@
     <StartProgram>$(DevEnvDir)devenv.exe</StartProgram>
     <StartArguments>/rootsuffix Exp</StartArguments>
     <LangVersion>latest</LangVersion>
+    <NoWarn>$(NoWarn);VSSDK007;CVSTBLD001</NoWarn>
     <DeployExtension>True</DeployExtension>
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
     <RuntimeIdentifiers>win</RuntimeIdentifiers>

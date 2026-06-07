@@ -53,6 +53,7 @@ namespace ClaudeCode.VisualStudio
             Unloaded += (s, e) => _session?.Dispose();
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD100:Avoid async void methods", Justification = "Event handler")]
         private async void OnLoaded(object sender, RoutedEventArgs e)
         {
             Loaded -= OnLoaded;
@@ -135,7 +136,7 @@ namespace ClaudeCode.VisualStudio
 
         private void FetchAndSendAccountData()
         {
-            System.Threading.Tasks.Task.Run(async () =>
+            _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 var data = await AccountService.FetchAsync();
                 var limits = new List<object>();
@@ -231,7 +232,7 @@ namespace ClaudeCode.VisualStudio
             _host.PostMessage("status", new { state = "thinking" });
 
             // Spawn/send on a background thread so nothing on the UI thread can block it.
-            System.Threading.Tasks.Task.Run(async () =>
+            _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
                 {
@@ -242,7 +243,7 @@ namespace ClaudeCode.VisualStudio
                     {
                         var ctx = BuildContextPrefixAsync();
                         if (await System.Threading.Tasks.Task.WhenAny(ctx, System.Threading.Tasks.Task.Delay(2000)) == ctx)
-                            prefix = ctx.Result ?? string.Empty;
+                            prefix = await ctx ?? string.Empty;
                     }
                     catch { }
 
@@ -361,7 +362,7 @@ namespace ClaudeCode.VisualStudio
                 {
                     _compacting = false;
                     var summary = r.Text ?? "";
-                    System.Threading.Tasks.Task.Run(() =>
+                    _ = System.Threading.Tasks.Task.Run(() =>
                     {
                         try
                         {
@@ -462,7 +463,7 @@ namespace ClaudeCode.VisualStudio
             if (_session == null || !_session.IsRunning) return;
             _compacting = true;
             _host.PostMessage("status", new { state = "thinking" });
-            System.Threading.Tasks.Task.Run(() =>
+            _ = System.Threading.Tasks.Task.Run(() =>
             {
                 try
                 {
