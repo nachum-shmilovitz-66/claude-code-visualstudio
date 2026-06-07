@@ -135,8 +135,8 @@ namespace ClaudeCode.VisualStudio.Services
                 NewLine = "\n",
             };
 
-            _ = Task.Run(() => ReadLoop(_process.StandardOutput));
-            _ = Task.Run(() => ErrorLoop(_process.StandardError));
+            _ = Task.Run(() => ReadLoopAsync(_process.StandardOutput));
+            _ = Task.Run(() => ErrorLoopAsync(_process.StandardError));
         }
 
         private string BuildArguments(ClaudeCliLocator.Result cli)
@@ -264,7 +264,7 @@ namespace ClaudeCode.VisualStudio.Services
         }
 
         // ---- Reading -----------------------------------------------------
-        private async Task ReadLoop(StreamReader reader)
+        private async Task ReadLoopAsync(StreamReader reader)
         {
             try
             {
@@ -284,7 +284,7 @@ namespace ClaudeCode.VisualStudio.Services
             }
         }
 
-        private async Task ErrorLoop(StreamReader reader)
+        private async Task ErrorLoopAsync(StreamReader reader)
         {
             try
             {
