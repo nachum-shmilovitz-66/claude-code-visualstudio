@@ -180,7 +180,7 @@ namespace ClaudeCode.VisualStudio.Services
             return true;
         }
 
-        private static int ThinkingTokensForEffort(string effort)
+        internal static int ThinkingTokensForEffort(string effort)
         {
             switch ((effort ?? "").ToLowerInvariant())
             {

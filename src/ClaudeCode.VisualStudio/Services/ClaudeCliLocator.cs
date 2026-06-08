@@ -46,7 +46,7 @@ namespace ClaudeCode.VisualStudio.Services
             return new Result { FileName = "claude", ResolvedPath = "claude (PATH)" };
         }
 
-        private static Result Wrap(string path)
+        internal static Result Wrap(string path)
         {
             var isCmd = path.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) ||
                         path.EndsWith(".bat", StringComparison.OrdinalIgnoreCase);

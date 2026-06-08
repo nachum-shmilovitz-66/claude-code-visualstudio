@@ -27,20 +27,6 @@ namespace ClaudeCode.VisualStudio
         private string _permissionMode = "default";   // safest default: ask before edits
         private string _effort = "none";
 
-        // Security: only ever forward known CLI argument values to the claude process.
-        // Values arrive from the (local but untrusted) WebView, so validate against allow-lists
-        // before they reach the command line — otherwise a crafted value could inject CLI flags
-        // (or, through the cmd.exe shim, shell metacharacters).
-        private static readonly string[] AllowedModels = { "default", "opus", "sonnet", "haiku" };
-        private static readonly string[] AllowedModes = { "default", "acceptEdits", "plan", "bypassPermissions" };
-        private static readonly string[] AllowedEfforts = { "none", "low", "medium", "high", "extrahigh", "max", "ultracode" };
-        private static string SanitizeChoice(string value, string[] allowed, string fallback)
-        {
-            if (!string.IsNullOrEmpty(value))
-                foreach (var a in allowed)
-                    if (string.Equals(a, value, StringComparison.Ordinal)) return value;
-            return fallback;
-        }
         private bool _optionsDirty;
         private bool _compacting;
 
@@ -121,15 +107,15 @@ namespace ClaudeCode.VisualStudio
                     ResetSession();
                     break;
                 case "setModel":
-                    _model = SanitizeChoice(GetStr(message.Payload, "model"), AllowedModels, "default");
+                    _model = InputValidation.SanitizeChoice(GetStr(message.Payload, "model"), InputValidation.AllowedModels, "default");
                     _optionsDirty = true;
                     break;
                 case "setPermissionMode":
-                    _permissionMode = SanitizeChoice(GetStr(message.Payload, "mode"), AllowedModes, "default");
+                    _permissionMode = InputValidation.SanitizeChoice(GetStr(message.Payload, "mode"), InputValidation.AllowedModes, "default");
                     _optionsDirty = true;
                     break;
                 case "setEffort":
-                    _effort = SanitizeChoice(GetStr(message.Payload, "effort"), AllowedEfforts, "none");
+                    _effort = InputValidation.SanitizeChoice(GetStr(message.Payload, "effort"), InputValidation.AllowedEfforts, "none");
                     _optionsDirty = true;
                     break;
                 case "getContext":
@@ -238,7 +224,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.12",
+                version = "0.2.13",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -284,9 +270,9 @@ namespace ClaudeCode.VisualStudio
                         {
                             _record = rec;
                             _pendingResumeId = rec.SessionId;
-                            _model = SanitizeChoice(rec.Model, AllowedModels, "default");
-                            _permissionMode = SanitizeChoice(rec.Mode, AllowedModes, "default");
-                            _effort = SanitizeChoice(rec.Effort, AllowedEfforts, "none");
+                            _model = InputValidation.SanitizeChoice(rec.Model, InputValidation.AllowedModels, "default");
+                            _permissionMode = InputValidation.SanitizeChoice(rec.Mode, InputValidation.AllowedModes, "default");
+                            _effort = InputValidation.SanitizeChoice(rec.Effort, InputValidation.AllowedEfforts, "none");
                             _host.PostMessage("restore", new
                             {
                                 messages = rec.Messages,
