@@ -1,11 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="ClaudeCode.VisualStudio.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.1.0" Language="en-US" Publisher="Claude Code VS" />
+    <Identity Id="ClaudeCode.VisualStudio.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.8" Language="en-US" Publisher="Nachum Shmilovitz" />
     <DisplayName>Claude Code for Visual Studio</DisplayName>
-    <Description xml:space="preserve">Claude Code agentic coding assistant inside Visual Studio. Chat with Claude, let it read and edit your code, run tools, and view diffs — the same experience as the VS Code extension. Works in Visual Studio 2022 and 2026.</Description>
+    <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant directly into Visual Studio — the same experience as the VS Code extension, docked next to Solution Explorer.
+
+━━━ FEATURES ━━━
+
+  •  Chat with Claude about your open solution — it reads and edits your code, runs tools, and shows results inline
+  •  Activity timeline — every response shows each step (thinking, searches, file reads/edits) on a connected rail with status dots
+  •  Runs in your open solution folder automatically — no extra configuration
+  •  Pick the model, permission mode, and thinking effort right from the composer
+  •  Live context-window usage ring, plus an account &amp; usage panel
+  •  Slash commands, image attachments, and one-click compaction
+  •  Edited files open automatically so you can review the diff
+
+━━━ REQUIREMENTS ━━━
+
+  •  Powered by the Claude Code CLI — sign in once by running 'claude' in a terminal
+  •  Visual Studio 2022 or 2026 (amd64)</Description>
     <MoreInfo>https://www.anthropic.com/claude-code</MoreInfo>
-    <Tags>claude;claude code;ai;assistant;agent;chat;anthropic;copilot</Tags>
+    <License>Resources\LICENSE.txt</License>
+    <Icon>Resources\Icon.png</Icon>
+    <PreviewImage>Resources\Preview.png</PreviewImage>
+    <Tags>claude;claude code;ai;assistant;agent;chat;anthropic;copilot;llm;pair programming</Tags>
   </Metadata>
   <Installation>
     <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,19.0)">

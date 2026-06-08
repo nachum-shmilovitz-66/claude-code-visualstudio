@@ -23,14 +23,32 @@ namespace ClaudeCode.VisualStudio
 
         private ClaudeSession _session;
         private string _model = "default";
-        private string _permissionMode = "acceptEdits";
+        private string _permissionMode = "default";   // safest default: ask before edits
         private string _effort = "none";
+
+        // Security: only ever forward known CLI argument values to the claude process.
+        // Values arrive from the (local but untrusted) WebView, so validate against allow-lists
+        // before they reach the command line — otherwise a crafted value could inject CLI flags
+        // (or, through the cmd.exe shim, shell metacharacters).
+        private static readonly string[] AllowedModels = { "default", "opus", "sonnet", "haiku" };
+        private static readonly string[] AllowedModes = { "default", "acceptEdits", "plan", "bypassPermissions" };
+        private static readonly string[] AllowedEfforts = { "none", "low", "medium", "high", "veryhigh", "extrahigh" };
+        private static string SanitizeChoice(string value, string[] allowed, string fallback)
+        {
+            if (!string.IsNullOrEmpty(value))
+                foreach (var a in allowed)
+                    if (string.Equals(a, value, StringComparison.Ordinal)) return value;
+            return fallback;
+        }
         private bool _optionsDirty;
         private bool _compacting;
 
         private readonly IdeContextService _ide = new IdeContextService();
         private readonly ThemeService _theme = new ThemeService();
         private readonly Dictionary<string, string> _editedFiles = new Dictionary<string, string>();
+        private List<string> _tools = new List<string>();
+        private List<string> _mcpServers = new List<string>();
+        private bool _cwdUserSet;   // user picked an explicit working dir -> stop auto-resolving from the solution
 
         // Working directory for claude. Defaults to the user profile and is upgraded to the
         // solution directory once known. Cached so the send path never blocks on VS services.
@@ -99,15 +117,15 @@ namespace ClaudeCode.VisualStudio
                     ResetSession();
                     break;
                 case "setModel":
-                    _model = GetStr(message.Payload, "model") ?? "default";
+                    _model = SanitizeChoice(GetStr(message.Payload, "model"), AllowedModels, "default");
                     _optionsDirty = true;
                     break;
                 case "setPermissionMode":
-                    _permissionMode = GetStr(message.Payload, "mode") ?? "acceptEdits";
+                    _permissionMode = SanitizeChoice(GetStr(message.Payload, "mode"), AllowedModes, "default");
                     _optionsDirty = true;
                     break;
                 case "setEffort":
-                    _effort = GetStr(message.Payload, "effort") ?? "none";
+                    _effort = SanitizeChoice(GetStr(message.Payload, "effort"), AllowedEfforts, "none");
                     _optionsDirty = true;
                     break;
                 case "getContext":
@@ -130,6 +148,9 @@ namespace ClaudeCode.VisualStudio
                     break;
                 case "openExternal":
                     TryOpenExternal(GetStr(message.Payload, "url"));
+                    break;
+                case "pickWorkingDir":
+                    PickWorkingDir();
                     break;
             }
         }
@@ -163,9 +184,25 @@ namespace ClaudeCode.VisualStudio
                 var sel = await _ide.GetActiveSelectionAsync();
                 var openFiles = await _ide.GetOpenFilesAsync();
                 var folders = await _ide.GetWorkspaceFoldersAsync();
+
+                // CLAUDE.md project/user memory the CLI will load for this working dir.
+                string projectMd = null, userMd = null;
+                try
+                {
+                    if (!string.IsNullOrEmpty(_cwd))
+                    {
+                        var p = Path.Combine(_cwd, "CLAUDE.md");
+                        if (File.Exists(p)) projectMd = p;
+                    }
+                    var u = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "CLAUDE.md");
+                    if (File.Exists(u)) userMd = u;
+                }
+                catch { }
+
                 _host.PostMessage("context", new
                 {
                     cwd = _cwd,
+                    cwdUserSet = _cwdUserSet,
                     workspaceFolders = folders,
                     activeFile = sel?.FilePath,
                     languageId = sel?.LanguageId,
@@ -173,6 +210,10 @@ namespace ClaudeCode.VisualStudio
                     selStart = sel?.StartLine ?? 0,
                     selEnd = sel?.EndLine ?? 0,
                     openFiles = openFiles,
+                    claudeMdProject = projectMd,
+                    claudeMdUser = userMd,
+                    tools = _tools,
+                    mcpServers = _mcpServers,
                     model = _model,
                     effort = _effort,
                     permissionMode = _permissionMode,
@@ -185,7 +226,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.1.0",
+                version = "0.2.8",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -210,6 +251,8 @@ namespace ClaudeCode.VisualStudio
                     new { id = "low", name = "Low" },
                     new { id = "medium", name = "Medium" },
                     new { id = "high", name = "High" },
+                    new { id = "veryhigh", name = "Very high" },
+                    new { id = "extrahigh", name = "Extra high" },
                 },
             });
 
@@ -228,7 +271,7 @@ namespace ClaudeCode.VisualStudio
             string text = GetStr(payload, "text") ?? string.Empty;
             var images = ParseImages(payload);
 
-            Log.Write("HandleSend: text=" + (text.Length > 60 ? text.Substring(0, 60) : text));
+            Log.WriteVerbose("HandleSend: text=" + (text.Length > 60 ? text.Substring(0, 60) : text));
             _host.PostMessage("status", new { state = "thinking" });
 
             // Spawn/send on a background thread so nothing on the UI thread can block it.
@@ -247,6 +290,7 @@ namespace ClaudeCode.VisualStudio
                     }
                     catch { }
 
+                    await EnsureWorkingDirectoryAsync();
                     EnsureSession();
                     _session.SendUserMessage(prefix + text, images);
                     Log.Write("HandleSend: message sent");
@@ -322,12 +366,14 @@ namespace ClaudeCode.VisualStudio
         {
             s.SystemInit += i =>
             {
+                _tools = i.Tools ?? new List<string>();
+                _mcpServers = i.McpServers ?? new List<string>();
                 _host.PostMessage("system", new { subtype = "init", model = i.Model, cwd = i.Cwd });
                 _host.PostMessage("commands", new { commands = i.SlashCommands });
             };
             s.AssistantStart += () => _host.PostMessage("assistantStart", new { });
             s.TextDelta += t => _host.PostMessage("assistantDelta", new { text = t });
-            s.ThinkingDelta += t => { /* thinking stream available; hidden by default */ };
+            s.ThinkingDelta += t => _host.PostMessage("thinkingDelta", new { text = t });
             s.ToolUse += t =>
             {
                 _host.PostMessage("toolUse", new { id = t.Id, name = t.Name, input = RawJson(t.InputJson) });
@@ -369,7 +415,6 @@ namespace ClaudeCode.VisualStudio
                             _session?.Dispose();
                             _session = null;
                             _optionsDirty = false;       // fresh session, no --resume -> shrinks context
-                            _host.PostMessage("clear", new { });
                             _host.PostMessage("compacted", new { summary });
                             EnsureSession();
                             _session.SendUserMessage(
@@ -458,6 +503,29 @@ namespace ClaudeCode.VisualStudio
             }).FireAndForget();
         }
 
+        private void PickWorkingDir()
+        {
+            ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                using (var dlg = new System.Windows.Forms.FolderBrowserDialog())
+                {
+                    dlg.Description = "Select the working directory Claude should operate in";
+                    if (!string.IsNullOrEmpty(_cwd) && Directory.Exists(_cwd)) dlg.SelectedPath = _cwd;
+                    if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+                    var chosen = dlg.SelectedPath;
+                    if (string.IsNullOrEmpty(chosen) || !Directory.Exists(chosen)) return;
+
+                    _cwd = chosen;
+                    _cwdUserSet = true;
+                    _optionsDirty = true;   // next send restarts the session in the new working dir
+                    Log.Write("working dir changed to " + _cwd);
+                    _host.PostMessage("init", new { cwd = _cwd });
+                    SendContext();
+                }
+            }).FireAndForget();
+        }
+
         private void HandleCompact()
         {
             if (_session == null || !_session.IsRunning) return;
@@ -521,6 +589,22 @@ namespace ClaudeCode.VisualStudio
             return list.Count > 0 ? list : null;
         }
 
+        private async System.Threading.Tasks.Task EnsureWorkingDirectoryAsync()
+        {
+            // The claude process inherits its cwd at launch and can't change it afterwards,
+            // so resolve only before the first start. The tool window is usually restored
+            // (docked next to Solution Explorer) before the solution finishes opening, which
+            // leaves the OnLoaded value stale (the user-home fallback) — re-resolve here once
+            // the solution is actually loaded so claude runs in the project folder.
+            if (_session != null || _cwdUserSet) return;
+            try
+            {
+                var dir = await GetWorkingDirectoryAsync();
+                if (!string.IsNullOrEmpty(dir)) _cwd = dir;
+            }
+            catch { }
+        }
+
         private async System.Threading.Tasks.Task<string> GetWorkingDirectoryAsync()
         {
             try
@@ -550,7 +634,15 @@ namespace ClaudeCode.VisualStudio
         private void TryOpenExternal(string url)
         {
             if (string.IsNullOrEmpty(url)) return;
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+            // Security: ShellExecute will launch ANY string (apps, files, scripts). Restrict to
+            // real web URLs so a crafted "openExternal" message can't run a local program.
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                Log.Write("openExternal blocked (non-http url): " + url);
+                return;
+            }
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
             catch { }
         }
     }
