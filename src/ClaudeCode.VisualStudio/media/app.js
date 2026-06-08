@@ -6,7 +6,7 @@
   const els = {
     messages: $("messages"), input: $("input"),
     sendBtn: $("sendBtn"), stopBtn: $("stopBtn"),
-    modelBtn: $("modelBtn"), contextBtn: $("contextBtn"), usageBtn: $("usageBtn"), newSessionBtn: $("newSessionBtn"),
+    modelBtn: $("modelBtn"), contextBtn: $("contextBtn"), usageBtn: $("usageBtn"),
     plusBtn: $("plusBtn"), slashBtn: $("slashBtn"), ringBtn: $("ringBtn"), ringFg: $("ringFg"),
     modeBtn: $("modeBtn"), modeLabel: $("modeLabel"),
     statusText: $("statusText"), usage: $("usage"), attachments: $("attachments"),
@@ -196,7 +196,6 @@
 
   els.sendBtn.addEventListener("click", send);
   els.stopBtn.addEventListener("click", () => post("interrupt"));
-  els.newSessionBtn.addEventListener("click", () => { resetTotals(); closeAll(); post("newSession"); });
   els.ringBtn.addEventListener("click", () => { closeAll(); post("compact"); showThinking("Compacting"); });
 
   els.modelBtn.addEventListener("click", () => toggleTop("model"));
