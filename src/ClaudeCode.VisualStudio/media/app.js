@@ -18,7 +18,7 @@
   let attachments = [];
   let slashCommands = [];
   let fileList = [], atQuery = "", atItems = [], atIndex = 0;
-  let models = [], modes = [], efforts = [];
+  let models = [], modes = [], efforts = [], effortsByModel = {};
   let cur = { model: "default", mode: "default", effort: "none" };
   const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, turns: 0 };
   const ctx = { used: 0, window: 200000, model: "", baseline: 0, system: 0 };
@@ -137,9 +137,11 @@
       if (p.models) models = p.models;
       if (p.modes) modes = p.modes;
       if (p.efforts) efforts = p.efforts;
+      if (p.effortsByModel) effortsByModel = p.effortsByModel;
       if (p.model) cur.model = p.model;
       if (p.permissionMode) cur.mode = p.permissionMode;
       if (p.effort) cur.effort = p.effort;
+      applyEffortsForModel();
       updateModeLabel();
     },
     commands: (p) => { slashCommands = p.commands || []; },
@@ -193,6 +195,7 @@
       if (p.model) cur.model = p.model;
       if (p.mode) { cur.mode = p.mode; updateModeLabel(); }
       if (p.effort) cur.effort = p.effort;
+      applyEffortsForModel();
       const msgs = p.messages || [];
       if (msgs.length) { const d = document.createElement("div"); d.className = "compacted-divider"; d.innerHTML = "<span>Restored previous conversation</span>"; els.messages.appendChild(d); }
       msgs.forEach((m) => {
@@ -215,6 +218,30 @@
   function updateModeLabel() { els.modeLabel.textContent = modeName(cur.mode).replace(/ mode$/i, "").replace("Edit automatically", "Auto-edit").replace("Ask before edits", "Ask"); }
   function applyThinkingVisibility() {
     els.messages.classList.toggle("hide-thinking", !thinkingVisible);
+  }
+  // Pick the effort list for the current model, falling back to the flat list.
+  // Clamp cur.effort to the new list so the slider never points at an
+  // unsupported level after a model switch.
+  function applyEffortsForModel() {
+    const list = (effortsByModel && effortsByModel[cur.model]) || efforts;
+    if (list && list.length) efforts = list;
+    if (!efforts.some((e) => e.id === cur.effort)) {
+      cur.effort = (efforts[0] || { id: "none" }).id;
+      post("setEffort", { effort: cur.effort });
+    }
+    if (!visibleModes().some((m) => m.id === cur.mode)) {
+      cur.mode = "default";
+      post("setPermissionMode", { mode: cur.mode });
+      updateModeLabel();
+    }
+  }
+  // Maps a model picker id to its wire name for the "Switched to" divider.
+  const MODEL_WIRE = { default: "claude-opus-4-8[1m]", sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5-20251001" };
+  function showModelDivider(id) {
+    const d = document.createElement("div");
+    d.className = "compacted-divider";
+    d.innerHTML = "<span>Switched to " + window.md.esc(MODEL_WIRE[id] || id) + "</span>";
+    els.messages.appendChild(d); scrollDown();
   }
   function effortDesc(id) {
     switch (id) {
@@ -343,7 +370,7 @@
       h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
     showTop(h);
-    els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { cur.model = o.dataset.id; post("setModel", { model: cur.model }); closeTop(); }));
+    els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); } closeTop(); }));
   }
   function renderUsage() {
     let h = '<h3>Account &amp; Usage <button class="close-x">×</button></h3>';
@@ -455,9 +482,16 @@
     }));
   }
 
+  // Models where bypassPermissions (Auto mode) is hidden.
+  const NO_AUTO_MODE_MODELS = new Set(["haiku"]);
+  function visibleModes() {
+    return NO_AUTO_MODE_MODELS.has(cur.model)
+      ? modes.filter((m) => m.id !== "bypassPermissions")
+      : modes;
+  }
   function renderMode() {
     let h = '<div class="sec">Permission mode</div>';
-    modes.forEach((m) => {
+    visibleModes().forEach((m) => {
       h += '<div class="opt' + (m.id === cur.mode ? " sel" : "") + '" data-id="' + m.id + '"><div class="oicon">' + (m.icon || "") + '</div><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.mode ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
     const ei = Math.max(0, efforts.findIndex((x) => x.id === cur.effort));

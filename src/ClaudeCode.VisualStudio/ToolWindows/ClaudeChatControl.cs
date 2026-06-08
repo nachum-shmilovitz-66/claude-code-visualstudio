@@ -220,11 +220,35 @@ namespace ClaudeCode.VisualStudio
             }).FireAndForget();
         }
 
+        // Effort levels available per model. Opus exposes the full extended-thinking
+        // range plus Ultracode workflows; Sonnet/Haiku expose progressively fewer.
+        private static object BuildEffortsByModel()
+        {
+            var off = new { id = "none", name = "Off" };
+            var low = new { id = "low", name = "Low" };
+            var medium = new { id = "medium", name = "Medium" };
+            var high = new { id = "high", name = "High" };
+            var extrahigh = new { id = "extrahigh", name = "Extra high" };
+            var max = new { id = "max", name = "Max" };
+            var ultracode = new { id = "ultracode", name = "Ultracode" };
+
+            var opus = new object[] { off, low, medium, high, extrahigh, max, ultracode };
+            var sonnet = new object[] { off, low, medium, high, max };
+            var haiku = new object[] { off, low, medium, high };
+
+            return new System.Collections.Generic.Dictionary<string, object[]>
+            {
+                ["default"] = opus,
+                ["sonnet"] = sonnet,
+                ["haiku"] = haiku,
+            };
+        }
+
         private void SendInit()
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.13",
+                version = "0.2.15",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -232,7 +256,6 @@ namespace ClaudeCode.VisualStudio
                 models = new object[]
                 {
                     new { id = "default", name = "Default (recommended)", desc = "Opus 4.8 with 1M context · Most capable for complex work" },
-                    new { id = "opus", name = "Opus", desc = "Opus 4.8 · Most capable" },
                     new { id = "sonnet", name = "Sonnet", desc = "Sonnet 4.6 · Best for everyday tasks" },
                     new { id = "haiku", name = "Haiku", desc = "Haiku 4.5 · Fastest for quick answers" },
                 },
@@ -243,16 +266,7 @@ namespace ClaudeCode.VisualStudio
                     new { id = "plan", name = "Plan mode", desc = "Explore and present a plan before editing", icon = "▤" },
                     new { id = "bypassPermissions", name = "Auto mode", desc = "Claude runs any tool automatically", icon = "⚡" },
                 },
-                efforts = new object[]
-                {
-                    new { id = "none", name = "Off" },
-                    new { id = "low", name = "Low" },
-                    new { id = "medium", name = "Medium" },
-                    new { id = "high", name = "High" },
-                    new { id = "extrahigh", name = "Extra high" },
-                    new { id = "max", name = "Max" },
-                    new { id = "ultracode", name = "Ultracode" },
-                },
+                effortsByModel = BuildEffortsByModel(),
             });
 
             ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
