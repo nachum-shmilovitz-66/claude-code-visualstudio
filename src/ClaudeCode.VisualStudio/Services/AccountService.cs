@@ -61,7 +61,7 @@ namespace ClaudeCode.VisualStudio.Services
                 {
                     var resp = await _http.SendAsync(req);
                     var body = await resp.Content.ReadAsStringAsync();
-                    Log.Write("AccountService profile: " + (int)resp.StatusCode + " body=" + Trunc(body));
+                    Log.WriteVerbose("AccountService profile: " + (int)resp.StatusCode + " body=" + Trunc(body));
                     if (resp.IsSuccessStatusCode)
                         ParseAccountInfo(result, body);
                 }
@@ -71,7 +71,7 @@ namespace ClaudeCode.VisualStudio.Services
                 {
                     var resp = await _http.SendAsync(req);
                     var body = await resp.Content.ReadAsStringAsync();
-                    Log.Write("AccountService usage: " + (int)resp.StatusCode + " body=" + Trunc(body));
+                    Log.WriteVerbose("AccountService usage: " + (int)resp.StatusCode + " body=" + Trunc(body));
                     if (resp.IsSuccessStatusCode)
                         ParseUsageOAuth(result, body);
                 }
@@ -114,7 +114,7 @@ namespace ClaudeCode.VisualStudio.Services
                 string credPath = null;
                 foreach (var candidate in CredentialCandidates())
                 {
-                    Log.Write("AccountService: trying " + candidate + " exists=" + File.Exists(candidate));
+                    Log.WriteVerbose("AccountService: trying " + candidate + " exists=" + File.Exists(candidate));
                     if (File.Exists(candidate)) { credPath = candidate; break; }
                 }
 
@@ -125,7 +125,7 @@ namespace ClaudeCode.VisualStudio.Services
                 }
 
                 var json = File.ReadAllText(credPath);
-                Log.Write("AccountService: read credentials from " + credPath + " len=" + json.Length);
+                Log.WriteVerbose("AccountService: read credentials from " + credPath + " len=" + json.Length);
                 using (var doc = JsonDocument.Parse(json))
                 {
                     var root = doc.RootElement;

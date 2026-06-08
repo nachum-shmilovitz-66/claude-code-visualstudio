@@ -163,11 +163,21 @@ namespace ClaudeCode.VisualStudio.Services
             {
                 sb.Append(" --max-thinking-tokens ").Append(thinking.ToString(CultureInfo.InvariantCulture));
             }
-            if (!string.IsNullOrEmpty(_options.ResumeSessionId))
+            if (!string.IsNullOrEmpty(_options.ResumeSessionId) && IsSafeSessionId(_options.ResumeSessionId))
             {
                 sb.Append(" --resume ").Append(_options.ResumeSessionId);
             }
             return sb.ToString();
+        }
+
+        // Defense-in-depth: the resume id is the CLI's own session id, but validate it is a
+        // plain id (UUID-like) so it can never carry extra CLI flags / shell metacharacters.
+        private static bool IsSafeSessionId(string s)
+        {
+            if (s.Length == 0 || s.Length > 100) return false;
+            foreach (var c in s)
+                if (!(char.IsLetterOrDigit(c) || c == '-' || c == '_')) return false;
+            return true;
         }
 
         private static int ThinkingTokensForEffort(string effort)
@@ -175,8 +185,10 @@ namespace ClaudeCode.VisualStudio.Services
             switch ((effort ?? "").ToLowerInvariant())
             {
                 case "low": return 4096;
-                case "medium": return 12000;
-                case "high": return 31999;
+                case "medium": return 10000;
+                case "high": return 16000;
+                case "veryhigh": return 24000;
+                case "extrahigh": return 31999;   // max thinking budget
                 default: return 0; // "none"/null -> omit (model default, no extended thinking)
             }
         }
@@ -254,7 +266,7 @@ namespace ClaudeCode.VisualStudio.Services
                     _stdin?.Write("\n");
                     _stdin?.Flush();
                 }
-                Log.Write("IN  " + Trunc(json));
+                Log.WriteVerbose("IN  " + Trunc(json));
             }
             catch (Exception ex)
             {
@@ -272,7 +284,7 @@ namespace ClaudeCode.VisualStudio.Services
                 while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
                     if (line.Length == 0) continue;
-                    Log.Write("OUT " + Trunc(line));
+                    Log.WriteVerbose("OUT " + Trunc(line));
                     try { HandleLine(line); }
                     catch (Exception ex) { Diagnostic?.Invoke("parse error: " + ex.Message + " :: " + Trunc(line)); }
                 }
@@ -291,7 +303,7 @@ namespace ClaudeCode.VisualStudio.Services
                 string line;
                 while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
-                    if (line.Length > 0) { Log.Write("ERR " + line); Diagnostic?.Invoke("stderr: " + line); }
+                    if (line.Length > 0) { Log.WriteVerbose("ERR " + line); Diagnostic?.Invoke("stderr: " + line); }
                 }
             }
             catch { }
@@ -340,6 +352,16 @@ namespace ClaudeCode.VisualStudio.Services
             if (root.TryGetProperty("slash_commands", out var cmds) && cmds.ValueKind == JsonValueKind.Array)
             {
                 foreach (var c in cmds.EnumerateArray()) info.SlashCommands.Add(c.GetString());
+            }
+            if (root.TryGetProperty("mcp_servers", out var mcps) && mcps.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var m in mcps.EnumerateArray())
+                {
+                    var name = GetString(m, "name");
+                    if (string.IsNullOrEmpty(name)) continue;
+                    var status = GetString(m, "status");
+                    info.McpServers.Add(string.IsNullOrEmpty(status) ? name : name + " (" + status + ")");
+                }
             }
             SessionId = info.SessionId;
             SystemInit?.Invoke(info);

@@ -1,0 +1,15 @@
+Claude Code for Visual Studio
+
+Copyright (c) 2026 Claude Code VS
+
+This extension is an unofficial integration that drives the Claude Code CLI
+inside Visual Studio. "Claude" and "Claude Code" are products of Anthropic.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software to use it for personal and commercial development.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE
+USE OF THE SOFTWARE.

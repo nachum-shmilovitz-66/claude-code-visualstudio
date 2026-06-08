@@ -53,13 +53,37 @@ namespace ClaudeCode.VisualStudio.WebView
 
             var core = _webView.CoreWebView2;
             var settings = core.Settings;
+            // Security: DevTools exposes the host<->WebView message protocol and in-memory data.
+            // Enable only in Debug builds.
+#if DEBUG
             settings.AreDevToolsEnabled = true;
+#else
+            settings.AreDevToolsEnabled = false;
+#endif
             settings.AreDefaultContextMenusEnabled = true;
             settings.IsStatusBarEnabled = false;
             settings.AreBrowserAcceleratorKeysEnabled = false;
             settings.IsZoomControlEnabled = false;
 
             core.WebMessageReceived += OnWebMessageReceived;
+
+            // Security: keep the WebView pinned to our local UI. A target="_blank" link opens a
+            // NewWindowRequested; any attempt to navigate the frame elsewhere is cancelled. Real
+            // web URLs are handed to the system browser instead of loading inside the control.
+            core.NewWindowRequested += (s, e) =>
+            {
+                e.Handled = true;
+                OpenInBrowser(e.Uri);
+            };
+            core.NavigationStarting += (s, e) =>
+            {
+                if (e.Uri != null &&
+                    !e.Uri.StartsWith("https://" + VirtualHost, StringComparison.OrdinalIgnoreCase))
+                {
+                    e.Cancel = true;
+                    OpenInBrowser(e.Uri);
+                }
+            };
 
             var mediaPath = Path.Combine(
                 Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty,
@@ -145,6 +169,19 @@ namespace ClaudeCode.VisualStudio.WebView
             {
                 Services.Log.Write("PostRaw EXCEPTION: " + ex.Message + " :: " + Head(json));
             }
+        }
+
+        private static void OpenInBrowser(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                Services.Log.Write("WebView navigation blocked: " + url);
+                return;
+            }
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
+            catch { }
         }
 
         private static string Head(string s) => s == null ? "" : (s.Length > 80 ? s.Substring(0, 80) : s);

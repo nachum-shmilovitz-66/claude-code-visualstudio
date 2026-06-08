@@ -6,23 +6,24 @@
   const els = {
     messages: $("messages"), input: $("input"),
     sendBtn: $("sendBtn"), stopBtn: $("stopBtn"),
-    modelBtn: $("modelBtn"), contextBtn: $("contextBtn"), usageBtn: $("usageBtn"),
+    modelBtn: $("modelBtn"), contextBtn: $("contextBtn"), usageBtn: $("usageBtn"), compactBtn: $("compactBtn"), thinkingBtn: $("thinkingBtn"),
     plusBtn: $("plusBtn"), slashBtn: $("slashBtn"), ringBtn: $("ringBtn"), ringFg: $("ringFg"),
     modeBtn: $("modeBtn"), modeLabel: $("modeLabel"),
     statusText: $("statusText"), usage: $("usage"), attachments: $("attachments"),
     popover: $("popover"), cpop: $("cpop"),
   };
 
-  let running = false, currentAssistant = null;
+  let running = false, currentAssistant = null, currentTurn = null, currentThinking = null;
   const toolCards = new Map();
   let attachments = [];
   let slashCommands = [];
   let models = [], modes = [], efforts = [];
-  let cur = { model: "default", mode: "bypassPermissions", effort: "none" };
-  const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0 };
+  let cur = { model: "default", mode: "default", effort: "none" };
+  const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, turns: 0 };
   const ctx = { used: 0, window: 200000, model: "", baseline: 0, system: 0 };
   let topOpen = null, cOpen = null;
   let acct = null;
+  let thinkingVisible = true;
 
   function post(type, payload) { if (api) api.postMessage({ type: type, payload: payload || {} }); }
 
@@ -39,16 +40,51 @@
   function scrollDown() { els.messages.scrollTop = els.messages.scrollHeight; }
   function addMsg(role) {
     const w = document.createElement("div"); w.className = "msg " + role;
-    const r = document.createElement("div"); r.className = "role"; r.textContent = role === "user" ? "You" : "Claude";
     const b = document.createElement("div"); b.className = "bubble";
-    w.appendChild(r); w.appendChild(b); els.messages.appendChild(w); scrollDown(); return b;
+    w.appendChild(b); els.messages.appendChild(w); scrollDown(); return b;
   }
-  function removeThinking() { const t = els.messages.querySelector(".thinking-row"); if (t) t.remove(); }
+  // ---- activity timeline (VS Code-style rail with dots) ----
+  function ensureTurn() {
+    if (!currentTurn) { currentTurn = document.createElement("div"); currentTurn.className = "turn"; els.messages.appendChild(currentTurn); }
+    return currentTurn;
+  }
+  function endTurn() { currentTurn = null; currentAssistant = null; currentThinking = null; }
+  function addNode(kind, dotKind) {
+    const turn = ensureTurn();
+    const node = document.createElement("div"); node.className = "node" + (kind ? " " + kind : "");
+    const dot = document.createElement("span"); dot.className = "node-dot" + (dotKind ? " " + dotKind : "");
+    const main = document.createElement("div"); main.className = "node-main";
+    node.appendChild(dot); node.appendChild(main); turn.appendChild(node); scrollDown();
+    return { node: node, dot: dot, main: main };
+  }
+  function removeThinking() { const t = els.messages.querySelector(".thinking-node"); if (t) t.remove(); }
   function showThinking(label) {
     removeThinking();
-    const row = document.createElement("div"); row.className = "msg assistant thinking-row";
-    row.innerHTML = '<div class="thinking"><span>' + (label || "Working") + '</span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
-    els.messages.appendChild(row); scrollDown();
+    const n = addNode("thinking-node", "spin");
+    n.main.innerHTML = '<div class="thinking"><span>' + window.md.esc(label || "Working") + '</span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
+  }
+  // Streamed extended-thinking: a collapsible "Thinking" node on the rail.
+  function appendThinking(text) {
+    removeThinking();
+    if (!currentThinking) {
+      const nd = addNode("think-node", "spin");
+      const c = document.createElement("div"); c.className = "think";
+      const h = document.createElement("div"); h.className = "think-head";
+      h.innerHTML = '<span class="chev">▶</span><span class="think-label">Thinking…</span>';
+      const bd = document.createElement("div"); bd.className = "think-body";
+      h.addEventListener("click", () => c.classList.toggle("open"));
+      c.appendChild(h); c.appendChild(bd); nd.main.appendChild(c);
+      currentThinking = { bd: bd, buf: "", dot: nd.dot, label: h.querySelector(".think-label") };
+    }
+    currentThinking.buf += text || "";
+    currentThinking.bd.textContent = currentThinking.buf;
+    scrollDown();
+  }
+  function settleThinking() {
+    if (!currentThinking) return;
+    currentThinking.dot.className = "node-dot text";
+    if (currentThinking.label) currentThinking.label.textContent = "Thinking";
+    currentThinking = null;
   }
   function renderBlocks(b, blocks) {
     for (const x of blocks) {
@@ -61,31 +97,37 @@
     catch (e) { return ""; }
   }
   function renderToolUse(t) {
+    const nd = addNode("tool-node", "pending");
     const c = document.createElement("div"); c.className = "tool";
     const h = document.createElement("div"); h.className = "tool-head";
     h.innerHTML = '<span class="tname">' + window.md.esc(t.name || "tool") + '</span><span class="tsummary">' + window.md.esc(summarize(t.name, t.input)) + '</span><span class="chev">▶</span>';
     const bd = document.createElement("div"); bd.className = "tool-body";
     bd.innerHTML = "<pre>" + window.md.esc(JSON.stringify(t.input || {}, null, 2)) + "</pre>";
     h.addEventListener("click", () => c.classList.toggle("open"));
-    c.appendChild(h); c.appendChild(bd); els.messages.appendChild(c);
-    if (t.id) toolCards.set(t.id, bd); scrollDown();
+    c.appendChild(h); c.appendChild(bd); nd.main.appendChild(c);
+    if (t.id) toolCards.set(t.id, { bd: bd, dot: nd.dot }); scrollDown();
   }
   function renderToolResult(r) {
-    const bd = r.id && toolCards.get(r.id);
+    const entry = r.id && toolCards.get(r.id);
     const text = typeof r.content === "string" ? r.content : JSON.stringify(r.content, null, 2);
     const pre = document.createElement("pre"); pre.style.marginTop = "8px";
     if (r.isError) pre.style.color = "var(--red)";
     pre.textContent = (text || "").slice(0, 4000);
-    if (bd) { const l = document.createElement("div"); l.style.cssText = "color:var(--fg-dim);font-size:11px"; l.textContent = r.isError ? "result (error)" : "result"; bd.appendChild(l); bd.appendChild(pre); }
+    if (entry) {
+      if (entry.dot) entry.dot.className = "node-dot " + (r.isError ? "error" : "done");
+      const l = document.createElement("div"); l.style.cssText = "color:var(--fg-dim);font-size:11px"; l.textContent = r.isError ? "result (error)" : "result";
+      entry.bd.appendChild(l); entry.bd.appendChild(pre);
+    }
   }
   function renderPermission(p) {
+    const nd = addNode("perm-node", "perm");
     const c = document.createElement("div"); c.className = "perm"; c.dataset.id = p.id;
     c.innerHTML = '<div class="ptitle">Allow ' + window.md.esc(p.tool || "tool") + '?</div><div class="pbody"><pre>' + window.md.esc(JSON.stringify(p.input || {}, null, 2)) + '</pre></div><div class="pactions"><button class="allow" data-b="allow">Allow</button><button class="deny" data-b="deny">Deny</button></div>';
     c.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => {
       post("permissionResponse", { id: p.id, behavior: btn.dataset.b });
       c.classList.add("resolved"); c.querySelector(".pactions").innerHTML = "<em>" + (btn.dataset.b === "deny" ? "Denied" : "Allowed") + "</em>";
     }));
-    els.messages.appendChild(c); scrollDown();
+    nd.main.appendChild(c); scrollDown();
   }
 
   const handlers = {
@@ -109,14 +151,15 @@
       els.stopBtn.classList.toggle("hidden", !running);
       if (!running) removeThinking();
     },
-    assistantStart: () => { removeThinking(); currentAssistant = { el: addMsg("assistant"), buf: "" }; },
+    assistantStart: () => { removeThinking(); settleThinking(); currentAssistant = null; },
     assistantDelta: (p) => {
-      if (!currentAssistant) currentAssistant = { el: addMsg("assistant"), buf: "" };
+      if (!currentAssistant) { settleThinking(); const n = addNode("text-node", "text"); currentAssistant = { el: n.main, buf: "" }; }
       currentAssistant.buf += p.text || ""; currentAssistant.el.innerHTML = window.md.render(currentAssistant.buf); scrollDown();
     },
-    assistantEnd: () => { currentAssistant = null; },
-    assistant: (p) => { removeThinking(); currentAssistant = null; renderBlocks(addMsg("assistant"), p.content || []); scrollDown(); },
+    assistantEnd: () => { settleThinking(); currentAssistant = null; },
+    assistant: (p) => { removeThinking(); settleThinking(); const n = addNode("text-node", "text"); renderBlocks(n.main, p.content || []); currentAssistant = null; scrollDown(); },
     thinking: (p) => showThinking(p.label),
+    thinkingDelta: (p) => appendThinking(p.text),
     toolUse: (p) => { removeThinking(); renderToolUse(p); },
     toolResult: (p) => renderToolResult(p),
     permission: (p) => { removeThinking(); renderPermission(p); },
@@ -129,6 +172,7 @@
       els.usage.textContent = parts.join(" · ");
       totals.costUsd += +(p.costUsd || 0); totals.inputTokens += +(p.inputTokens || 0);
       totals.outputTokens += +(p.outputTokens || 0); totals.turns += 1;
+      totals.cacheReadTokens += +(p.cacheReadTokens || 0); totals.cacheCreationTokens += +(p.cacheCreationTokens || 0);
       // context window usage
       ctx.used = (+(p.inputTokens || 0)) + (+(p.cacheReadTokens || 0)) + (+(p.cacheCreationTokens || 0));
       if (p.contextWindow) ctx.window = +p.contextWindow;
@@ -141,9 +185,9 @@
     },
     error: (p) => { removeThinking(); const b = addMsg("assistant"); b.innerHTML = '<span style="color:var(--red)">⚠ ' + window.md.esc(p.message || "Error") + "</span>"; },
     system: (p) => { if (p.subtype === "init" && p.model) ctx.model = p.model; },
-    clear: () => { els.messages.innerHTML = ""; els.usage.textContent = ""; currentAssistant = null; toolCards.clear(); },
+    clear: () => { els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear(); },
     accountData: (p) => { acct = p; if (topOpen === "usage") renderUsage(); },
-    compacted: (p) => { const n = document.createElement("div"); n.className = "note"; n.textContent = "✓ Context compacted into a summary."; els.messages.appendChild(n); ctx.used = 0; ctx.baseline = 0; updateRing(); },
+    compacted: (p) => { removeThinking(); endTurn(); const n = document.createElement("div"); n.className = "compacted-divider"; n.innerHTML = '<span>Compacted</span>'; els.messages.appendChild(n); ctx.used = 0; ctx.baseline = 0; updateRing(); scrollDown(); },
     attachImage: (p) => { attachments.push({ mediaType: p.mediaType, data: p.data, name: p.name }); renderAttachments(); },
     insertText: (p) => { els.input.value += (els.input.value && !els.input.value.endsWith(" ") ? " " : "") + (p.text || ""); els.input.focus(); autoGrow(); },
   };
@@ -153,6 +197,21 @@
   function fmt(n) { n = +n || 0; if (n >= 1e6) return (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return (n / 1e3).toFixed(1) + "k"; return String(n); }
   function modeName(id) { const m = modes.find((x) => x.id === id); return m ? m.name : id; }
   function updateModeLabel() { els.modeLabel.textContent = modeName(cur.mode).replace(/ mode$/i, "").replace("Edit automatically", "Auto-edit").replace("Ask before edits", "Ask"); }
+  function updateThinkingBtn() {
+    els.thinkingBtn.textContent = "Thinking: " + (thinkingVisible ? "On" : "Off");
+    els.thinkingBtn.classList.toggle("active", thinkingVisible);
+    els.messages.classList.toggle("hide-thinking", !thinkingVisible);
+  }
+  function effortDesc(id) {
+    switch (id) {
+      case "low": return "~4k tokens";
+      case "medium": return "~10k tokens";
+      case "high": return "~16k tokens";
+      case "veryhigh": return "~24k tokens";
+      case "extrahigh": return "~32k tokens (max)";
+      default: return "no extended thinking";
+    }
+  }
 
   // ---- context ring ----
   function updateRing() {
@@ -163,13 +222,34 @@
   }
 
   // ---- composer ----
-  function autoGrow() { els.input.style.height = "auto"; els.input.style.height = Math.min(els.input.scrollHeight, 200) + "px"; }
+  function autoGrow() {
+    els.input.style.height = "auto";
+    const sh = els.input.scrollHeight;
+    els.input.style.height = Math.min(sh, 200) + "px";
+    els.input.style.overflowY = sh > 200 ? "auto" : "hidden";
+  }
   function send() {
     const text = els.input.value.trim();
     if (!text && attachments.length === 0) return;
-    addMsg("user").innerHTML = window.md.render(text);
+    endTurn();
+    let html = attachments.length ? renderMsgAttachments(attachments) : "";
+    if (text) html += window.md.render(text);
+    addMsg("user").innerHTML = html;
     post("send", { text: text, images: attachments });
     els.input.value = ""; attachments = []; renderAttachments(); autoGrow(); showThinking("Working");
+  }
+  function renderMsgAttachments(list) {
+    let h = '<div class="msg-attachments">';
+    list.forEach((a) => {
+      const isImg = a.mediaType && a.mediaType.indexOf("image/") === 0 && a.data;
+      if (isImg) {
+        const mt = String(a.mediaType).replace(/[^a-z0-9/+.\-]/gi, "");
+        h += '<img class="msg-att-img" src="data:' + mt + ";base64," + a.data + '" alt="' + window.md.esc(a.name || "image") + '" title="' + window.md.esc(a.name || "image") + '" />';
+      } else {
+        h += '<span class="msg-att-file">📄 ' + window.md.esc(a.name || "file") + "</span>";
+      }
+    });
+    return h + "</div>";
   }
   function renderAttachments() {
     els.attachments.innerHTML = "";
@@ -201,6 +281,8 @@
   els.modelBtn.addEventListener("click", () => toggleTop("model"));
   els.contextBtn.addEventListener("click", () => toggleTop("context"));
   els.usageBtn.addEventListener("click", () => toggleTop("usage"));
+  els.compactBtn.addEventListener("click", () => { closeAll(); post("compact"); showThinking("Compacting"); });
+  els.thinkingBtn.addEventListener("click", () => { thinkingVisible = !thinkingVisible; updateThinkingBtn(); });
   els.plusBtn.addEventListener("click", () => toggleC("plus"));
   els.slashBtn.addEventListener("click", () => toggleC("slash"));
   els.modeBtn.addEventListener("click", () => toggleC("mode"));
@@ -212,7 +294,7 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
 
   // ---- top popovers ----
-  function resetTotals() { totals.costUsd = 0; totals.inputTokens = 0; totals.outputTokens = 0; totals.turns = 0; els.usage.textContent = ""; }
+  function resetTotals() { totals.costUsd = 0; totals.inputTokens = 0; totals.outputTokens = 0; totals.cacheReadTokens = 0; totals.cacheCreationTokens = 0; totals.turns = 0; els.usage.textContent = ""; }
   function activeTop() { [["model", els.modelBtn], ["context", els.contextBtn], ["usage", els.usageBtn]].forEach(([k, b]) => b.classList.toggle("active", topOpen === k)); }
   function closeTop() { topOpen = null; els.popover.classList.add("hidden"); els.popover.innerHTML = ""; activeTop(); }
   function openTop(which) { closeC(); topOpen = which; activeTop(); if (which === "model") renderModel(); else if (which === "context") { post("getContext"); renderContext(); } else if (which === "usage") { post("getUsage"); renderUsage(); } }
@@ -259,9 +341,14 @@
     h += '<div class="sec" style="margin-top:10px">Session tokens</div>';
     h += kv("Total cost", "$" + totals.costUsd.toFixed(4));
     h += kv("Turns", totals.turns);
-    h += kv("Input tokens", totals.inputTokens.toLocaleString());
-    h += kv("Output tokens", totals.outputTokens.toLocaleString());
-    h += kv("Total tokens", (totals.inputTokens + totals.outputTokens).toLocaleString());
+    h += kv("Input (fresh)", totals.inputTokens.toLocaleString());
+    h += kv("Cache write", totals.cacheCreationTokens.toLocaleString());
+    h += kv("Cache read", totals.cacheReadTokens.toLocaleString());
+    h += kv("Output", totals.outputTokens.toLocaleString());
+    const totalIn = totals.inputTokens + totals.cacheCreationTokens + totals.cacheReadTokens;
+    const hit = totalIn > 0 ? Math.round((totals.cacheReadTokens / totalIn) * 100) : 0;
+    h += kv("Cache hit", hit + "% (cache read is ~90% cheaper)");
+    h += kv("Total tokens", (totalIn + totals.outputTokens).toLocaleString());
 
     showTop(h);
 
@@ -286,13 +373,29 @@
     h += '<div class="note" style="margin-top:6px">Per-category split (system prompt vs tools vs skills) isn\'t exposed by the headless CLI; values are derived from real token usage.</div>';
     if (lastIde) {
       h += '<div class="sec">IDE context</div>';
-      h += kv("Working dir", lastIde.cwd) + kv("Active file", lastIde.activeFile || "—");
+      h += '<div class="kv"><span class="k">Working dir</span><span class="v">' + window.md.esc(lastIde.cwd || "—") + ' <a href="#" id="cwdChange" style="color:var(--green)">Change…</a></span></div>';
+      h += kv("Active file", lastIde.activeFile || "—");
       if (lastIde.hasSelection) h += kv("Selection", "lines " + lastIde.selStart + "–" + lastIde.selEnd);
+
+      // Project memory (CLAUDE.md the CLI auto-loads)
+      h += '<div class="sec">Project memory (CLAUDE.md)</div>';
+      h += kv("Project", lastIde.claudeMdProject || "none");
+      h += kv("User", lastIde.claudeMdUser || "none");
+
+      // MCP servers + tools from the CLI session
+      const mcp = lastIde.mcpServers || [];
+      h += '<div class="sec">MCP servers (' + mcp.length + ")</div>";
+      h += mcp.length ? '<ul class="files">' + mcp.map((x) => "<li>" + window.md.esc(x) + "</li>").join("") + "</ul>" : '<div style="color:var(--fg-dim)">none configured</div>';
+      const tl = lastIde.tools || [];
+      if (tl.length) h += kv("Tools available", tl.length);
+
       const f = lastIde.openFiles || [];
       h += '<div class="sec">Open files (' + f.length + ")</div>";
       h += f.length ? '<ul class="files">' + f.map((x) => "<li>" + window.md.esc(x) + "</li>").join("") + "</ul>" : '<div style="color:var(--fg-dim)">none</div>';
     }
     showTop(h);
+    const cc = els.popover.querySelector("#cwdChange");
+    if (cc) cc.addEventListener("click", (e) => { e.preventDefault(); post("pickWorkingDir"); });
   }
   function row(c, name, tk, win) { const pc = win ? (tk / win * 100) : 0; return '<div class="sw" style="background:' + c + (c === "transparent" ? ";border:1px solid var(--border)" : "") + '"></div><div class="nm">' + window.md.esc(name) + '</div><div class="tk">' + fmt(tk) + '</div><div class="pc">' + (pc < 0.1 && pc > 0 ? "<0.1" : pc.toFixed(1)) + "%</div>"; }
   function kv(k, v) { return '<div class="kv"><span class="k">' + window.md.esc(k) + '</span><span class="v">' + window.md.esc(v == null || v === "" ? "—" : String(v)) + "</span></div>"; }
@@ -323,7 +426,7 @@
     modes.forEach((m) => {
       h += '<div class="opt' + (m.id === cur.mode ? " sel" : "") + '" data-id="' + m.id + '"><div class="oicon">' + (m.icon || "") + '</div><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.mode ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
-    h += '<div class="effort-row"><div class="elabel">Effort <small>(thinking budget)</small></div><div class="dots" id="effdots"></div></div>';
+    h += '<div class="effort-row"><div class="elabel">Effort <small id="effdesc">(' + window.md.esc(effortDesc(cur.effort)) + ')</small></div><div class="dots" id="effdots"></div></div>';
     showC(h);
     els.cpop.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { cur.mode = o.dataset.id; post("setPermissionMode", { mode: cur.mode }); updateModeLabel(); renderMode(); }));
     const dots = els.cpop.querySelector("#effdots");
@@ -370,7 +473,7 @@
     if (!palItems.length) { list.innerHTML = '<div class="note" style="padding:8px">No matching commands</div>'; return; }
     let h = "";
     palItems.forEach((c, i) => {
-      h += '<button class="menu-item' + (i === palIndex ? " sel" : "") + '" data-i="' + i + '"><span class="mi-icon">/</span><span><span class="cmd-name">/' + window.md.esc(c.name) + '</span> <span class="mi-desc">' + window.md.esc(c.desc || "") + "</span></span></button>";
+      h += '<button class="menu-item' + (i === palIndex ? " sel" : "") + '" data-i="' + i + '"><span class="mi-icon">/</span><span><span class="cmd-name">' + window.md.esc(c.name) + '</span> <span class="mi-desc">' + window.md.esc(c.desc || "") + "</span></span></button>";
     });
     list.innerHTML = h;
     list.querySelectorAll(".menu-item").forEach((b) => b.addEventListener("click", () => runPalette(palItems[+b.dataset.i])));
@@ -393,5 +496,6 @@
   function closeAll() { closeTop(); closeC(); }
 
   updateRing();
+  updateThinkingBtn();
   post("ready");
 })();

@@ -10,6 +10,7 @@ namespace ClaudeCode.VisualStudio.Services
         public string PermissionMode;
         public List<string> Tools = new List<string>();
         public List<string> SlashCommands = new List<string>();
+        public List<string> McpServers = new List<string>();   // "name (status)"
         public string Version;
     }
 
