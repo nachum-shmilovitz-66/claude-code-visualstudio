@@ -19,6 +19,7 @@ namespace ClaudeCode.VisualStudio.Services
         public string Model { get; set; } = "default";
         public string Mode { get; set; } = "default";
         public string Effort { get; set; } = "none";
+        public bool ShowThinking { get; set; } = true;
         public List<StoredMessage> Messages { get; set; } = new List<StoredMessage>();
     }
 
