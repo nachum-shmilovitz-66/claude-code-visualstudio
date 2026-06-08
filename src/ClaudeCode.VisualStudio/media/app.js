@@ -6,7 +6,7 @@
   const els = {
     messages: $("messages"), input: $("input"),
     sendBtn: $("sendBtn"), stopBtn: $("stopBtn"),
-    modelBtn: $("modelBtn"), contextBtn: $("contextBtn"), usageBtn: $("usageBtn"), compactBtn: $("compactBtn"), thinkingBtn: $("thinkingBtn"),
+    modelBtn: $("modelBtn"), contextBtn: $("contextBtn"), usageBtn: $("usageBtn"), compactBtn: $("compactBtn"),
     plusBtn: $("plusBtn"), slashBtn: $("slashBtn"), ringBtn: $("ringBtn"), ringFg: $("ringFg"),
     modeBtn: $("modeBtn"), modeLabel: $("modeLabel"),
     statusText: $("statusText"), usage: $("usage"), attachments: $("attachments"),
@@ -17,6 +17,7 @@
   const toolCards = new Map();
   let attachments = [];
   let slashCommands = [];
+  let fileList = [], atQuery = "", atItems = [], atIndex = 0;
   let models = [], modes = [], efforts = [];
   let cur = { model: "default", mode: "default", effort: "none" };
   const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, turns: 0 };
@@ -142,6 +143,7 @@
       updateModeLabel();
     },
     commands: (p) => { slashCommands = p.commands || []; },
+    files: (p) => { fileList = p.files || []; if (cOpen === "at") filterAt(); },
     context: (p) => mergeContextIde(p),
     theme: (p) => applyTheme(p),
     status: (p) => {
@@ -186,6 +188,20 @@
     error: (p) => { removeThinking(); const b = addMsg("assistant"); b.innerHTML = '<span style="color:var(--red)">⚠ ' + window.md.esc(p.message || "Error") + "</span>"; },
     system: (p) => { if (p.subtype === "init" && p.model) ctx.model = p.model; },
     clear: () => { els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear(); },
+    restore: (p) => {
+      endTurn(); els.messages.innerHTML = ""; toolCards.clear();
+      if (p.model) cur.model = p.model;
+      if (p.mode) { cur.mode = p.mode; updateModeLabel(); }
+      if (p.effort) cur.effort = p.effort;
+      const msgs = p.messages || [];
+      if (msgs.length) { const d = document.createElement("div"); d.className = "compacted-divider"; d.innerHTML = "<span>Restored previous conversation</span>"; els.messages.appendChild(d); }
+      msgs.forEach((m) => {
+        endTurn();
+        if (m.role === "user") { addMsg("user").innerHTML = window.md.render(m.text || ""); }
+        else { const n = addNode("text-node", "text"); n.main.innerHTML = window.md.render(m.text || ""); }
+      });
+      endTurn(); scrollDown();
+    },
     accountData: (p) => { acct = p; if (topOpen === "usage") renderUsage(); },
     compacted: (p) => { removeThinking(); endTurn(); const n = document.createElement("div"); n.className = "compacted-divider"; n.innerHTML = '<span>Compacted</span>'; els.messages.appendChild(n); ctx.used = 0; ctx.baseline = 0; updateRing(); scrollDown(); },
     attachImage: (p) => { attachments.push({ mediaType: p.mediaType, data: p.data, name: p.name }); renderAttachments(); },
@@ -197,9 +213,7 @@
   function fmt(n) { n = +n || 0; if (n >= 1e6) return (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return (n / 1e3).toFixed(1) + "k"; return String(n); }
   function modeName(id) { const m = modes.find((x) => x.id === id); return m ? m.name : id; }
   function updateModeLabel() { els.modeLabel.textContent = modeName(cur.mode).replace(/ mode$/i, "").replace("Edit automatically", "Auto-edit").replace("Ask before edits", "Ask"); }
-  function updateThinkingBtn() {
-    els.thinkingBtn.textContent = "Thinking: " + (thinkingVisible ? "On" : "Off");
-    els.thinkingBtn.classList.toggle("active", thinkingVisible);
+  function applyThinkingVisibility() {
     els.messages.classList.toggle("hide-thinking", !thinkingVisible);
   }
   function effortDesc(id) {
@@ -207,11 +221,14 @@
       case "low": return "~4k tokens";
       case "medium": return "~10k tokens";
       case "high": return "~16k tokens";
-      case "veryhigh": return "~24k tokens";
-      case "extrahigh": return "~32k tokens (max)";
+      case "extrahigh": return "~24k tokens";
+      case "max": return "~32k tokens";
+      case "ultracode": return "xhigh + workflows";
       default: return "no extended thinking";
     }
   }
+  // VS Code-style dumbbell icon for the Effort row.
+  const DUMBBELL = '<svg class="eicon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="1.5" y="9" width="3" height="6" rx="1"/><rect x="4.7" y="7" width="2.2" height="10" rx="1"/><rect x="6.9" y="10.5" width="10.2" height="3"/><rect x="17.1" y="7" width="2.2" height="10" rx="1"/><rect x="19.5" y="9" width="3" height="6" rx="1"/></svg>';
 
   // ---- context ring ----
   function updateRing() {
@@ -241,16 +258,29 @@
   function renderMsgAttachments(list) {
     let h = '<div class="msg-attachments">';
     list.forEach((a) => {
-      const isImg = a.mediaType && a.mediaType.indexOf("image/") === 0 && a.data;
+      const isImg = a.data && (!a.mediaType || /^image\//i.test(a.mediaType));
+      const nm = window.md.esc(a.name || (isImg ? "image" : "file"));
       if (isImg) {
-        const mt = String(a.mediaType).replace(/[^a-z0-9/+.\-]/gi, "");
-        h += '<img class="msg-att-img" src="data:' + mt + ";base64," + a.data + '" alt="' + window.md.esc(a.name || "image") + '" title="' + window.md.esc(a.name || "image") + '" />';
+        const mt = (a.mediaType && /^image\//i.test(a.mediaType)) ? String(a.mediaType).replace(/[^a-z0-9/+.\-]/gi, "") : "image/png";
+        const src = "data:" + mt + ";base64," + a.data;
+        h += '<span class="msg-att-chip"><img class="msg-att-img" src="' + src + '" title="' + nm + ' — click to open" /><span class="msg-att-name">' + nm + "</span></span>";
       } else {
-        h += '<span class="msg-att-file">📄 ' + window.md.esc(a.name || "file") + "</span>";
+        h += '<span class="msg-att-file">📄 ' + nm + "</span>";
       }
     });
     return h + "</div>";
   }
+  // Click an attachment thumbnail to open it full-size in a lightbox overlay.
+  function openLightbox(src) {
+    const ov = document.createElement("div"); ov.className = "lightbox";
+    const img = document.createElement("img"); img.src = src; ov.appendChild(img);
+    ov.addEventListener("click", () => ov.remove());
+    document.getElementById("app").appendChild(ov);
+  }
+  els.messages.addEventListener("click", (e) => {
+    const img = e.target.closest ? e.target.closest(".msg-att-img") : null;
+    if (img) openLightbox(img.getAttribute("src"));
+  });
   function renderAttachments() {
     els.attachments.innerHTML = "";
     attachments.forEach((a, i) => {
@@ -260,16 +290,23 @@
       els.attachments.appendChild(c);
     });
   }
-  els.input.addEventListener("input", () => { autoGrow(); if (els.input.value.startsWith("/") && cOpen !== "slash") openSlash(); });
+  els.input.addEventListener("input", () => {
+    autoGrow();
+    if (els.input.value.startsWith("/") && cOpen !== "slash") { openSlash(); return; }
+    const m = els.input.value.match(/(?:^|\s)@(\S*)$/);
+    if (m) { if (!fileList.length) post("getFiles"); openAt(m[1]); }
+    else if (cOpen === "at") closeC();
+  });
   els.input.addEventListener("keydown", (e) => {
     if (cOpen === "slash") { if (paletteKey(e)) return; }
+    if (cOpen === "at") { if (atKey(e)) return; }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   });
   els.input.addEventListener("paste", (e) => {
     const items = e.clipboardData && e.clipboardData.items; if (!items) return;
     for (const it of items) if (it.type && it.type.startsWith("image/")) {
-      const f = it.getAsFile(); const rd = new FileReader();
-      rd.onload = () => { attachments.push({ mediaType: it.type, data: String(rd.result).split(",")[1], name: "pasted." + it.type.split("/")[1] }); renderAttachments(); };
+      const type = it.type; const f = it.getAsFile(); const rd = new FileReader();
+      rd.onload = () => { attachments.push({ mediaType: type, data: String(rd.result).split(",")[1], name: "pasted." + (type.split("/")[1] || "png") }); renderAttachments(); };
       rd.readAsDataURL(f);
     }
   });
@@ -282,14 +319,13 @@
   els.contextBtn.addEventListener("click", () => toggleTop("context"));
   els.usageBtn.addEventListener("click", () => toggleTop("usage"));
   els.compactBtn.addEventListener("click", () => { closeAll(); post("compact"); showThinking("Compacting"); });
-  els.thinkingBtn.addEventListener("click", () => { thinkingVisible = !thinkingVisible; updateThinkingBtn(); });
   els.plusBtn.addEventListener("click", () => toggleC("plus"));
   els.slashBtn.addEventListener("click", () => toggleC("slash"));
   els.modeBtn.addEventListener("click", () => toggleC("mode"));
 
   document.addEventListener("mousedown", (e) => {
     if (topOpen && !els.popover.contains(e.target) && !e.target.closest("#modelBtn,#contextBtn,#usageBtn")) closeTop();
-    if (cOpen && !els.cpop.contains(e.target) && !e.target.closest("#plusBtn,#slashBtn,#modeBtn")) closeC();
+    if (cOpen && !els.cpop.contains(e.target) && !e.target.closest("#plusBtn,#slashBtn,#modeBtn,#input")) closeC();
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
 
@@ -373,7 +409,7 @@
     h += '<div class="note" style="margin-top:6px">Per-category split (system prompt vs tools vs skills) isn\'t exposed by the headless CLI; values are derived from real token usage.</div>';
     if (lastIde) {
       h += '<div class="sec">IDE context</div>';
-      h += '<div class="kv"><span class="k">Working dir</span><span class="v">' + window.md.esc(lastIde.cwd || "—") + ' <a href="#" id="cwdChange" style="color:var(--green)">Change…</a></span></div>';
+      h += kv("Working dir", lastIde.cwd || "—");
       h += kv("Active file", lastIde.activeFile || "—");
       if (lastIde.hasSelection) h += kv("Selection", "lines " + lastIde.selStart + "–" + lastIde.selEnd);
 
@@ -394,8 +430,6 @@
       h += f.length ? '<ul class="files">' + f.map((x) => "<li>" + window.md.esc(x) + "</li>").join("") + "</ul>" : '<div style="color:var(--fg-dim)">none</div>';
     }
     showTop(h);
-    const cc = els.popover.querySelector("#cwdChange");
-    if (cc) cc.addEventListener("click", (e) => { e.preventDefault(); post("pickWorkingDir"); });
   }
   function row(c, name, tk, win) { const pc = win ? (tk / win * 100) : 0; return '<div class="sw" style="background:' + c + (c === "transparent" ? ";border:1px solid var(--border)" : "") + '"></div><div class="nm">' + window.md.esc(name) + '</div><div class="tk">' + fmt(tk) + '</div><div class="pc">' + (pc < 0.1 && pc > 0 ? "<0.1" : pc.toFixed(1)) + "%</div>"; }
   function kv(k, v) { return '<div class="kv"><span class="k">' + window.md.esc(k) + '</span><span class="v">' + window.md.esc(v == null || v === "" ? "—" : String(v)) + "</span></div>"; }
@@ -426,17 +460,55 @@
     modes.forEach((m) => {
       h += '<div class="opt' + (m.id === cur.mode ? " sel" : "") + '" data-id="' + m.id + '"><div class="oicon">' + (m.icon || "") + '</div><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.mode ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
-    h += '<div class="effort-row"><div class="elabel">Effort <small id="effdesc">(' + window.md.esc(effortDesc(cur.effort)) + ')</small></div><div class="dots" id="effdots"></div></div>';
+    const ei = Math.max(0, efforts.findIndex((x) => x.id === cur.effort));
+    const curName = (efforts[ei] || {}).name || "Off";
+    h += '<div class="effort-row"><div class="elabel">' + DUMBBELL + ' Effort <small id="effdesc">(' + window.md.esc(curName + " — " + effortDesc(cur.effort)) + ')</small></div><input type="range" class="effort-slider" id="effslider" min="0" max="' + (efforts.length - 1) + '" value="' + ei + '" /></div>';
+    h += '<div class="effort-row"><div class="elabel">Show thinking <small>(stream reasoning)</small></div><button class="mini-toggle' + (thinkingVisible ? " on" : "") + '" id="thinkToggle">' + (thinkingVisible ? "On" : "Off") + '</button></div>';
     showC(h);
     els.cpop.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { cur.mode = o.dataset.id; post("setPermissionMode", { mode: cur.mode }); updateModeLabel(); renderMode(); }));
-    const dots = els.cpop.querySelector("#effdots");
-    efforts.forEach((e) => {
-      const d = document.createElement("span"); d.className = "dot" + (e.id === cur.effort ? " on" : ""); d.title = e.name;
-      d.addEventListener("click", () => { cur.effort = e.id; post("setEffort", { effort: cur.effort }); renderMode(); });
-      dots.appendChild(d);
+    const sl = els.cpop.querySelector("#effslider");
+    if (sl) sl.addEventListener("input", () => {
+      const e = efforts[+sl.value] || efforts[0];
+      cur.effort = e.id; post("setEffort", { effort: cur.effort });
+      const dd = els.cpop.querySelector("#effdesc");
+      if (dd) dd.textContent = "(" + e.name + " — " + effortDesc(e.id) + ")";
     });
-    const lbl = document.createElement("small"); lbl.style.cssText = "margin-left:8px;color:var(--fg-dim)";
-    lbl.textContent = (efforts.find((x) => x.id === cur.effort) || {}).name || ""; dots.appendChild(lbl);
+    const tt = els.cpop.querySelector("#thinkToggle");
+    if (tt) tt.addEventListener("click", () => { thinkingVisible = !thinkingVisible; applyThinkingVisibility(); renderMode(); });
+  }
+
+  // ---- @-mention file picker ----
+  function openAt(query) {
+    closeTop(); cOpen = "at"; activeC();
+    atQuery = query || "";
+    filterAt();
+  }
+  function filterAt() {
+    const q = (atQuery || "").toLowerCase();
+    atItems = fileList.filter((f) => f.toLowerCase().includes(q)).slice(0, 50);
+    atIndex = 0; renderAt();
+  }
+  function renderAt() {
+    if (cOpen !== "at") return;
+    showC('<div class="sec" style="padding:0 4px">Reference a file</div><div id="atlist"></div>');
+    const list = els.cpop.querySelector("#atlist");
+    if (!atItems.length) { list.innerHTML = '<div class="note" style="padding:8px">' + (fileList.length ? "No matching files" : "Loading files…") + '</div>'; return; }
+    let h = "";
+    atItems.forEach((f, i) => { h += '<button class="menu-item' + (i === atIndex ? " sel" : "") + '" data-i="' + i + '"><span class="mi-icon">@</span><span class="cmd-name">' + window.md.esc(f) + "</span></button>"; });
+    list.innerHTML = h;
+    list.querySelectorAll(".menu-item").forEach((b) => b.addEventListener("click", () => pickAt(atItems[+b.dataset.i])));
+  }
+  function atKey(e) {
+    if (e.key === "ArrowDown") { atIndex = Math.min(atIndex + 1, atItems.length - 1); renderAt(); e.preventDefault(); return true; }
+    if (e.key === "ArrowUp") { atIndex = Math.max(atIndex - 1, 0); renderAt(); e.preventDefault(); return true; }
+    if (e.key === "Enter") { if (atItems[atIndex]) { pickAt(atItems[atIndex]); e.preventDefault(); return true; } }
+    if (e.key === "Escape") { closeC(); return true; }
+    return false;
+  }
+  function pickAt(f) {
+    if (!f) return;
+    els.input.value = els.input.value.replace(/(^|\s)@(\S*)$/, function (_, pre) { return pre + "@" + f + " "; });
+    closeC(); els.input.focus(); autoGrow();
   }
 
   // ---- slash palette ----
@@ -496,6 +568,6 @@
   function closeAll() { closeTop(); closeC(); }
 
   updateRing();
-  updateThinkingBtn();
+  applyThinkingVisibility();
   post("ready");
 })();
