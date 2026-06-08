@@ -118,8 +118,8 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
-  <!-- Copy the freshly built VSIX to the repo-root dist folder on every build (incl. F5). -->
-  <Target Name="CopyVsixToDist" AfterTargets="Build" Condition="Exists('$(TargetVsixContainer)')">
+  <!-- Publish the VSIX to the repo-root dist folder. Release builds only. -->
+  <Target Name="CopyVsixToDist" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And Exists('$(TargetVsixContainer)')">
     <Copy SourceFiles="$(TargetVsixContainer)" DestinationFolder="$(MSBuildProjectDirectory)\..\..\dist" SkipUnchangedFiles="false" />
     <Message Importance="high" Text="Copied VSIX -&gt; $(MSBuildProjectDirectory)\..\..\dist\$(TargetName).vsix" />
   </Target>
