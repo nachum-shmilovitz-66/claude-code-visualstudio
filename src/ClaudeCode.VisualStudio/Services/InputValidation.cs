@@ -10,7 +10,7 @@ namespace ClaudeCode.VisualStudio.Services
     /// </summary>
     internal static class InputValidation
     {
-        internal static readonly string[] AllowedModels = { "default", "opus", "sonnet", "haiku" };
+        internal static readonly string[] AllowedModels = { "default", "sonnet", "haiku" };
         internal static readonly string[] AllowedModes = { "default", "acceptEdits", "plan", "bypassPermissions" };
         internal static readonly string[] AllowedEfforts = { "none", "low", "medium", "high", "extrahigh", "max", "ultracode" };
 
