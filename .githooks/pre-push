@@ -1,0 +1,35 @@
+#!/bin/sh
+#
+# Auto-tag releases: when the version in the VSIX manifest has no matching
+# git tag yet, create an annotated tag v<version> and push it to the same
+# remote. Runs on every `git push`.
+#
+# The tag-existence guard also makes the nested push of the tag itself a
+# no-op, so this does not recurse.
+
+remote="$1"
+manifest="src/ClaudeCode.VisualStudio/source.extension.vsixmanifest"
+
+[ -f "$manifest" ] || exit 0
+
+# Pull the <Identity ... Version="X.Y.Z" ...> value (not the PackageManifest one,
+# and not the GUID in the Identity Id attribute).
+version=$(grep '<Identity' "$manifest" \
+  | grep -o 'Version="[0-9][0-9.]*"' \
+  | grep -o '[0-9][0-9.]*' | head -n1)
+
+[ -n "$version" ] || exit 0
+
+tag="v$version"
+
+# Tag already exists (locally) -> nothing to do; also prevents recursion when
+# this hook fires again for the tag push below.
+if git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
+  exit 0
+fi
+
+echo "pre-push: version $version has no tag $tag -- creating and pushing it"
+git tag -a "$tag" -m "Release $tag" || exit 0
+git push "$remote" "$tag" || echo "pre-push: WARNING failed to push $tag"
+
+exit 0
