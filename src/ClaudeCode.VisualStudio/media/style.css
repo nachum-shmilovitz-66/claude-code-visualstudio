@@ -9,10 +9,9 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 #app { display: flex; flex-direction: column; height: 100vh; position: relative; }
 
 /* Toolbar */
-#toolbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-alt); flex: 0 0 auto; }
+#toolbar { display: flex; align-items: center; justify-content: flex-start; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-alt); flex: 0 0 auto; }
 .brand { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .brand .logo { color: var(--accent); }
-.actions { display: flex; align-items: center; gap: 4px; }
 .tbtn { background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; height: 24px; cursor: pointer; font-size: 12px; }
 .tbtn:hover { background: var(--bg-input); }
 .tbtn.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
@@ -73,6 +72,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 #attachments img { max-height: 28px; border-radius: 3px; }
 #input { width: 100%; resize: none; max-height: 200px; min-height: 34px; background: var(--bg-input); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 9px; font-family: inherit; font-size: 13px; line-height: 1.4; }
 #input:focus { outline: 1px solid var(--accent); }
+.composer-nav { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+.composer-nav .spacer { flex: 1 1 auto; }
 .composer-bar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .composer-bar .spacer { flex: 1 1 auto; }
 .cbtn { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--fg); cursor: pointer; font-size: 15px; line-height: 1; }
@@ -90,8 +91,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .stop { background: var(--red); color: #fff; width: 28px; font-size: 12px; }
 .hidden { display: none !important; }
 
-/* Popover (top-anchored): context / usage / model */
-.popover { position: absolute; top: 44px; right: 8px; left: 8px; max-height: 65%; overflow-y: auto; z-index: 60; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); padding: 12px; font-size: 12px; }
+/* Popover (bottom-anchored, opens upward over the composer): context / usage / model */
+.popover { position: absolute; bottom: 80px; right: 8px; left: 8px; max-height: 60%; overflow-y: auto; z-index: 60; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 -6px 28px rgba(0,0,0,.55); padding: 12px; font-size: 12px; }
 .popover h3 { margin: 0 0 10px; font-size: 13px; }
 .popover .close-x { float: right; cursor: pointer; color: var(--fg-dim); border: none; background: none; font-size: 16px; }
 .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
