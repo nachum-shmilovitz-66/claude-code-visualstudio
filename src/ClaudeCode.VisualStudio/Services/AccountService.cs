@@ -33,8 +33,11 @@ namespace ClaudeCode.VisualStudio.Services
         static AccountService()
         {
             _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            _http.DefaultRequestHeaders.Add("User-Agent", "ClaudeCodeVS/0.1");
-            _http.DefaultRequestHeaders.Add("anthropic-client-platform", "vscode");
+            // The "claude-code/" User-Agent prefix is REQUIRED by the OAuth usage endpoint;
+            // without it the request lands in an aggressively rate-limited bucket (persistent 429s).
+            _http.DefaultRequestHeaders.Add("User-Agent", "claude-code/1.0.0");
+            _http.DefaultRequestHeaders.Add("anthropic-beta", "oauth-2025-04-20");
+            _http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
         }
 
         public static async Task<AccountData> FetchAsync()
@@ -51,35 +54,26 @@ namespace ClaudeCode.VisualStudio.Services
                 }
                 result.AuthMethod = authMethod;
 
-                // Clone headers so we don't race between calls
-                using (var req = AuthRequest(HttpMethod.Get, "https://claude.ai/api/account_info", token))
+                // Account profile (email + organization). OAuth token works against
+                // api.anthropic.com — NOT claude.ai/api, which sits behind a Cloudflare
+                // bot challenge and returns 403 "Just a moment..." for programmatic calls.
+                using (var req = AuthRequest(HttpMethod.Get, "https://api.anthropic.com/api/oauth/profile", token))
                 {
                     var resp = await _http.SendAsync(req);
                     var body = await resp.Content.ReadAsStringAsync();
-                    Log.Write("AccountService account_info: " + (int)resp.StatusCode + " body=" + Trunc(body));
+                    Log.Write("AccountService profile: " + (int)resp.StatusCode + " body=" + Trunc(body));
                     if (resp.IsSuccessStatusCode)
                         ParseAccountInfo(result, body);
                 }
 
-                // Try to get usage/rate-limit data from a few possible endpoints
-                string[] usagePaths = {
-                    "https://claude.ai/api/usage_stats",
-                    "https://claude.ai/api/rate_limits",
-                    "https://claude.ai/api/usage",
-                };
-                foreach (var path in usagePaths)
+                // Usage / rate-limit windows (5-hour session, 7-day weekly, per-model weekly).
+                using (var req = AuthRequest(HttpMethod.Get, "https://api.anthropic.com/api/oauth/usage", token))
                 {
-                    using (var req = AuthRequest(HttpMethod.Get, path, token))
-                    {
-                        var resp = await _http.SendAsync(req);
-                        var body = await resp.Content.ReadAsStringAsync();
-                        Log.Write("AccountService " + path + ": " + (int)resp.StatusCode + " body=" + Trunc(body));
-                        if (resp.IsSuccessStatusCode)
-                        {
-                            ParseUsage(result, body);
-                            if (result.Limits.Count > 0) break;
-                        }
-                    }
+                    var resp = await _http.SendAsync(req);
+                    var body = await resp.Content.ReadAsStringAsync();
+                    Log.Write("AccountService usage: " + (int)resp.StatusCode + " body=" + Trunc(body));
+                    if (resp.IsSuccessStatusCode)
+                        ParseUsageOAuth(result, body);
                 }
             }
             catch (Exception ex)
@@ -199,41 +193,50 @@ namespace ClaudeCode.VisualStudio.Services
             Str(el, "plan_name", v => data.Plan = FormatPlanName(v));
         }
 
-        private static void ParseUsage(AccountData data, string json)
+        // Parses the api.anthropic.com/api/oauth/usage response:
+        //   { "five_hour": { "utilization": 2, "resets_at": "..." },
+        //     "seven_day": {...}, "seven_day_opus": null, "seven_day_sonnet": {...} }
+        private static void ParseUsageOAuth(AccountData data, string json)
         {
             try
             {
                 using (var doc = JsonDocument.Parse(json))
                 {
                     var root = doc.RootElement;
-
-                    // Try array at root
-                    if (root.ValueKind == JsonValueKind.Array) { ParseLimitArray(data, root); return; }
-
-                    // Try known keys
-                    foreach (var key in new[] { "limits", "usage", "rate_limits", "data" })
-                    {
-                        if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
-                        { ParseLimitArray(data, arr); return; }
-                    }
+                    AddWindow(data, root, "five_hour", "Session (5hr)");
+                    AddWindow(data, root, "seven_day", "Weekly (7 day)");
+                    AddWindow(data, root, "seven_day_opus", "Weekly Opus");
+                    AddWindow(data, root, "seven_day_sonnet", "Weekly Sonnet");
                 }
             }
-            catch (Exception ex) { Log.Write("AccountService.ParseUsage: " + ex.Message); }
+            catch (Exception ex) { Log.Write("AccountService.ParseUsageOAuth: " + ex.Message); }
         }
 
-        private static void ParseLimitArray(AccountData data, JsonElement arr)
+        private static void AddWindow(AccountData data, JsonElement root, string key, string label)
         {
-            foreach (var item in arr.EnumerateArray())
-            {
-                var limit = new UsageLimitData();
-                Str(item, "name", v => limit.Name = v);
-                Str(item, "display_name", v => limit.Name = v);
-                Num(item, "used_percent", v => limit.Percent = v);
-                Num(item, "percent", v => limit.Percent = v);
-                Str(item, "resets_in", v => limit.ResetsIn = v);
-                Str(item, "resets_in_human", v => limit.ResetsIn = v);
-                if (!string.IsNullOrEmpty(limit.Name)) data.Limits.Add(limit);
-            }
+            if (!root.TryGetProperty(key, out var w) || w.ValueKind != JsonValueKind.Object)
+                return;
+            var limit = new UsageLimitData { Name = label };
+            if (w.TryGetProperty("utilization", out var u) && u.TryGetDouble(out var pct))
+                limit.Percent = pct;
+            if (w.TryGetProperty("resets_at", out var r) && r.ValueKind == JsonValueKind.String)
+                limit.ResetsIn = FormatReset(r.GetString());
+            data.Limits.Add(limit);
+        }
+
+        // ISO-8601 reset timestamp -> short human delta ("4h", "5d", "12m").
+        private static string FormatReset(string iso)
+        {
+            if (string.IsNullOrEmpty(iso)) return null;
+            if (!DateTimeOffset.TryParse(iso, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                    out var when))
+                return null;
+            var delta = when - DateTimeOffset.UtcNow;
+            if (delta <= TimeSpan.Zero) return "now";
+            if (delta.TotalDays >= 1) return (int)Math.Round(delta.TotalDays) + "d";
+            if (delta.TotalHours >= 1) return (int)Math.Round(delta.TotalHours) + "h";
+            return Math.Max(1, (int)Math.Round(delta.TotalMinutes)) + "m";
         }
 
         private static string FormatPlanName(string raw)
@@ -255,12 +258,6 @@ namespace ClaudeCode.VisualStudio.Services
         {
             if (el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String)
                 set(v.GetString());
-        }
-
-        private static void Num(JsonElement el, string key, Action<double> set)
-        {
-            if (el.TryGetProperty(key, out var v) && v.TryGetDouble(out var d))
-                set(d);
         }
 
         private static string Trunc(string s) => s == null ? "" : s.Length > 300 ? s.Substring(0, 300) + "…" : s;
