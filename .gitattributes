@@ -1,0 +1,2 @@
+# Git hooks must keep LF line endings or the shell errors with "bad interpreter".
+.githooks/** text eol=lf
