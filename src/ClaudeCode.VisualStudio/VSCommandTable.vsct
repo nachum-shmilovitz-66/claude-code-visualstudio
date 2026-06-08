@@ -5,9 +5,9 @@
 
   <Commands package="ClaudeCodePackage">
     <Groups>
-      <!-- Group under the Tools top-level menu (always renders). -->
-      <Group guid="ClaudeCodeCmdSet" id="ClaudeToolsGroup" priority="0x0100">
-        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      <!-- Group under the View top-level menu (most discoverable). -->
+      <Group guid="ClaudeCodeCmdSet" id="ClaudeViewGroup" priority="0x0100">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW" />
       </Group>
       <!-- Group under View > Other Windows. -->
       <Group guid="ClaudeCodeCmdSet" id="ClaudeCodeMenuGroup" priority="0x0600">
@@ -17,7 +17,7 @@
 
     <Buttons>
       <Button guid="ClaudeCodeCmdSet" id="OpenClaudeChat" priority="0x0100" type="Button">
-        <Parent guid="ClaudeCodeCmdSet" id="ClaudeToolsGroup" />
+        <Parent guid="ClaudeCodeCmdSet" id="ClaudeViewGroup" />
         <Strings>
           <ButtonText>Claude Code</ButtonText>
           <LocCanonicalName>.View.ClaudeCode</LocCanonicalName>
@@ -36,7 +36,7 @@
   <Symbols>
     <GuidSymbol name="ClaudeCodePackage" value="{15FC1958-19BD-4195-8BB9-AFD6DD0F334C}" />
     <GuidSymbol name="ClaudeCodeCmdSet" value="{6DECCA05-E7F8-4DB9-9464-B88215C64A25}">
-      <IDSymbol name="ClaudeToolsGroup" value="0x1010" />
+      <IDSymbol name="ClaudeViewGroup" value="0x1010" />
       <IDSymbol name="ClaudeCodeMenuGroup" value="0x1020" />
       <IDSymbol name="ClaudeToolbarGroup" value="0x1030" />
       <IDSymbol name="OpenClaudeChat" value="0x0100" />

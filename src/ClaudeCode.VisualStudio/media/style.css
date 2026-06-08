@@ -23,7 +23,11 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .msg .bubble { border-radius: 6px; padding: 8px 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .msg.user .bubble { background: var(--user-bg); align-self: flex-start; max-width: 90%; }
 .msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.msg-att-img { max-height: 140px; max-width: 100%; border-radius: 6px; border: 1px solid var(--border); display: block; }
+.msg-att-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg-input); border-radius: 4px; padding: 2px 6px; font-size: 11px; max-width: 100%; }
+.msg-att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-att-img { max-height: 28px; border-radius: 3px; cursor: zoom-in; }
+.lightbox { position: absolute; inset: 0; z-index: 100; background: rgba(0,0,0,.8); display: flex; align-items: center; justify-content: center; cursor: zoom-out; padding: 24px; }
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 6px; box-shadow: 0 8px 40px rgba(0,0,0,.6); }
 .msg-att-file { display: inline-flex; align-items: center; gap: 4px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-size: 12px; }
 .msg.assistant .bubble { background: var(--bg-alt); }
 .msg .bubble p { margin: 0 0 8px; } .msg .bubble p:last-child { margin-bottom: 0; }
@@ -181,6 +185,12 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .dots { display: flex; gap: 8px; align-items: center; }
 .dots .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); cursor: pointer; }
 .dots .dot.on { background: var(--accent); }
+.mini-toggle { background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 12px; padding: 2px 12px; font-size: 11px; cursor: pointer; }
+.mini-toggle:hover { border-color: var(--accent); }
+.mini-toggle.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.elabel .eicon { vertical-align: -2px; margin-right: 4px; color: var(--fg-dim); }
+.effort-slider { -webkit-appearance: none; appearance: none; width: 130px; height: 6px; border-radius: 3px; background: var(--border); outline: none; cursor: pointer; }
+.effort-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg-alt); cursor: pointer; }
 
 /* composer popover (bottom-anchored): + menu, / palette, mode */
 .cpop { position: absolute; bottom: 70px; left: 8px; right: 8px; max-height: 50%; overflow-y: auto; z-index: 60; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 -6px 28px rgba(0,0,0,.5); padding: 6px; font-size: 12px; }

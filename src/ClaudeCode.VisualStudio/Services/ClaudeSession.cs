@@ -187,8 +187,9 @@ namespace ClaudeCode.VisualStudio.Services
                 case "low": return 4096;
                 case "medium": return 10000;
                 case "high": return 16000;
-                case "veryhigh": return 24000;
-                case "extrahigh": return 31999;   // max thinking budget
+                case "extrahigh": return 24000;
+                case "max": return 31999;          // max thinking budget
+                case "ultracode": return 31999;    // max thinking (+ workflow-style prompting)
                 default: return 0; // "none"/null -> omit (model default, no extended thinking)
             }
         }

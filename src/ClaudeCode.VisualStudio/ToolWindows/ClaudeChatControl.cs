@@ -8,6 +8,7 @@ using ClaudeCode.VisualStudio.Services;
 using ClaudeCode.VisualStudio.WebView;
 using Community.VisualStudio.Toolkit;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.Web.WebView2.Wpf;
 
 namespace ClaudeCode.VisualStudio
@@ -32,7 +33,7 @@ namespace ClaudeCode.VisualStudio
         // (or, through the cmd.exe shim, shell metacharacters).
         private static readonly string[] AllowedModels = { "default", "opus", "sonnet", "haiku" };
         private static readonly string[] AllowedModes = { "default", "acceptEdits", "plan", "bypassPermissions" };
-        private static readonly string[] AllowedEfforts = { "none", "low", "medium", "high", "veryhigh", "extrahigh" };
+        private static readonly string[] AllowedEfforts = { "none", "low", "medium", "high", "extrahigh", "max", "ultracode" };
         private static string SanitizeChoice(string value, string[] allowed, string fallback)
         {
             if (!string.IsNullOrEmpty(value))
@@ -45,10 +46,13 @@ namespace ClaudeCode.VisualStudio
 
         private readonly IdeContextService _ide = new IdeContextService();
         private readonly ThemeService _theme = new ThemeService();
-        private readonly Dictionary<string, string> _editedFiles = new Dictionary<string, string>();
+        private readonly Dictionary<string, EditSnapshot> _editedFiles = new Dictionary<string, EditSnapshot>();
+
+        private sealed class EditSnapshot { public string Path; public string OldText; }
         private List<string> _tools = new List<string>();
         private List<string> _mcpServers = new List<string>();
-        private bool _cwdUserSet;   // user picked an explicit working dir -> stop auto-resolving from the solution
+        private SessionRecord _record;        // persisted transcript for the current cwd
+        private string _pendingResumeId;      // CLI session id to --resume on next start (restore)
 
         // Working directory for claude. Defaults to the user profile and is upgraded to the
         // solution directory once known. Cached so the send path never blocks on VS services.
@@ -131,6 +135,9 @@ namespace ClaudeCode.VisualStudio
                 case "getContext":
                     SendContext();
                     break;
+                case "getFiles":
+                    SendFiles();
+                    break;
                 case "getUsage":
                     FetchAndSendAccountData();
                     break;
@@ -148,9 +155,6 @@ namespace ClaudeCode.VisualStudio
                     break;
                 case "openExternal":
                     TryOpenExternal(GetStr(message.Payload, "url"));
-                    break;
-                case "pickWorkingDir":
-                    PickWorkingDir();
                     break;
             }
         }
@@ -185,6 +189,15 @@ namespace ClaudeCode.VisualStudio
                 var openFiles = await _ide.GetOpenFilesAsync();
                 var folders = await _ide.GetWorkspaceFoldersAsync();
 
+                // Refresh cwd from the open solution if no session has pinned it yet and the user
+                // hasn't chosen one — the tool window often loads before the solution finished
+                // opening, leaving the early (user-home) fallback showing here.
+                if (_session == null)
+                {
+                    try { var d = await GetWorkingDirectoryAsync(); if (!string.IsNullOrEmpty(d)) _cwd = d; }
+                    catch { }
+                }
+
                 // CLAUDE.md project/user memory the CLI will load for this working dir.
                 string projectMd = null, userMd = null;
                 try
@@ -202,7 +215,6 @@ namespace ClaudeCode.VisualStudio
                 _host.PostMessage("context", new
                 {
                     cwd = _cwd,
-                    cwdUserSet = _cwdUserSet,
                     workspaceFolders = folders,
                     activeFile = sel?.FilePath,
                     languageId = sel?.LanguageId,
@@ -226,7 +238,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.8",
+                version = "0.2.12",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -251,18 +263,41 @@ namespace ClaudeCode.VisualStudio
                     new { id = "low", name = "Low" },
                     new { id = "medium", name = "Medium" },
                     new { id = "high", name = "High" },
-                    new { id = "veryhigh", name = "Very high" },
                     new { id = "extrahigh", name = "Extra high" },
+                    new { id = "max", name = "Max" },
+                    new { id = "ultracode", name = "Ultracode" },
                 },
             });
 
             ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
-                var folders = await _ide.GetWorkspaceFoldersAsync();
-                if (folders.Count > 0)
+                try
                 {
-                    _host.PostMessage("init", new { cwd = folders[0] });
+                    var dir = await GetWorkingDirectoryAsync();
+                    if (!string.IsNullOrEmpty(dir)) { _cwd = dir; _host.PostMessage("init", new { cwd = _cwd }); }
+
+                    // Restore the prior conversation for this working dir, if any.
+                    if (_record == null)
+                    {
+                        var rec = SessionStore.Load(_cwd);
+                        if (rec != null && rec.Messages != null && rec.Messages.Count > 0)
+                        {
+                            _record = rec;
+                            _pendingResumeId = rec.SessionId;
+                            _model = SanitizeChoice(rec.Model, AllowedModels, "default");
+                            _permissionMode = SanitizeChoice(rec.Mode, AllowedModes, "default");
+                            _effort = SanitizeChoice(rec.Effort, AllowedEfforts, "none");
+                            _host.PostMessage("restore", new
+                            {
+                                messages = rec.Messages,
+                                model = _model,
+                                mode = _permissionMode,
+                                effort = _effort,
+                            });
+                        }
+                    }
                 }
+                catch { }
             }).FireAndForget();
         }
 
@@ -293,6 +328,7 @@ namespace ClaudeCode.VisualStudio
                     await EnsureWorkingDirectoryAsync();
                     EnsureSession();
                     _session.SendUserMessage(prefix + text, images);
+                    AppendHistory("user", text);
                     Log.Write("HandleSend: message sent");
                 }
                 catch (Exception ex)
@@ -309,22 +345,48 @@ namespace ClaudeCode.VisualStudio
             try
             {
                 var sel = await _ide.GetActiveSelectionAsync();
-                if (sel == null || string.IsNullOrEmpty(sel.FilePath)) return string.Empty;
+                var openFiles = await _ide.GetOpenFilesAsync();
+                var diags = await _ide.GetDiagnosticsAsync(30);
 
+                bool any = false;
                 var sb = new System.Text.StringBuilder();
                 sb.AppendLine("<ide-context>");
-                sb.Append("Active file: ").AppendLine(sel.FilePath);
-                if (sel.HasSelection)
+
+                if (sel != null && !string.IsNullOrEmpty(sel.FilePath))
                 {
-                    sb.AppendLine("Selected lines " + sel.StartLine + "-" + sel.EndLine + ":");
-                    sb.AppendLine("```" + sel.LanguageId);
-                    var text = sel.Text.Length > 4000 ? sel.Text.Substring(0, 4000) + "\n…(truncated)" : sel.Text;
-                    sb.AppendLine(text);
-                    sb.AppendLine("```");
+                    any = true;
+                    sb.Append("Active file: ").AppendLine(sel.FilePath);
+                    if (sel.HasSelection)
+                    {
+                        sb.AppendLine("Selected lines " + sel.StartLine + "-" + sel.EndLine + ":");
+                        sb.AppendLine("```" + sel.LanguageId);
+                        var text = sel.Text.Length > 4000 ? sel.Text.Substring(0, 4000) + "\n…(truncated)" : sel.Text;
+                        sb.AppendLine(text);
+                        sb.AppendLine("```");
+                    }
                 }
+
+                if (openFiles != null && openFiles.Count > 0)
+                {
+                    any = true;
+                    sb.AppendLine("Open editors:");
+                    for (int i = 0; i < openFiles.Count && i < 20; i++) sb.Append("- ").AppendLine(openFiles[i]);
+                }
+
+                if (diags != null && diags.Count > 0)
+                {
+                    any = true;
+                    sb.AppendLine("Problems (VS Error List):");
+                    for (int i = 0; i < diags.Count && i < 30; i++)
+                    {
+                        var d = diags[i];
+                        sb.AppendLine("- [" + d.Level + "] " + d.File + ":" + d.Line + " " + d.Description);
+                    }
+                }
+
                 sb.AppendLine("</ide-context>");
                 sb.AppendLine();
-                return sb.ToString();
+                return any ? sb.ToString() : string.Empty;
             }
             catch { return string.Empty; }
         }
@@ -343,6 +405,13 @@ namespace ClaudeCode.VisualStudio
                 resume = _session.SessionId;
                 _session.Dispose();
                 _session = null;
+            }
+
+            // First start after a restore: resume the persisted CLI session.
+            if (resume == null && !string.IsNullOrEmpty(_pendingResumeId))
+            {
+                resume = _pendingResumeId;
+                _pendingResumeId = null;
             }
 
             _optionsDirty = false;
@@ -382,10 +451,10 @@ namespace ClaudeCode.VisualStudio
             s.ToolResult += r =>
             {
                 _host.PostMessage("toolResult", new { id = r.ToolUseId, content = r.Content, isError = r.IsError });
-                if (!r.IsError && r.ToolUseId != null && _editedFiles.TryGetValue(r.ToolUseId, out var path))
+                if (!r.IsError && r.ToolUseId != null && _editedFiles.TryGetValue(r.ToolUseId, out var snap))
                 {
                     _editedFiles.Remove(r.ToolUseId);
-                    ThreadHelper.JoinableTaskFactory.RunAsync(async () => await _ide.OpenFileAsync(path)).FireAndForget();
+                    ThreadHelper.JoinableTaskFactory.RunAsync(async () => await ShowEditAsync(snap)).FireAndForget();
                 }
             };
             s.AssistantEnd += () => _host.PostMessage("assistantEnd", new { });
@@ -403,6 +472,11 @@ namespace ClaudeCode.VisualStudio
                     durationMs = r.DurationMs,
                 });
                 _host.PostMessage("status", new { state = "idle" });
+
+                if (!_compacting && !r.IsError)
+                {
+                    AppendHistory("assistant", r.Text);
+                }
 
                 if (_compacting)
                 {
@@ -449,7 +523,10 @@ namespace ClaudeCode.VisualStudio
                         var input = JsonSerializer.Deserialize<JsonElement>(string.IsNullOrEmpty(t.InputJson) ? "{}" : t.InputJson);
                         if (input.TryGetProperty("file_path", out var fp) && fp.ValueKind == JsonValueKind.String)
                         {
-                            _editedFiles[t.Id] = fp.GetString();
+                            var path = fp.GetString();
+                            string old = null;
+                            try { if (File.Exists(path)) old = File.ReadAllText(path); } catch { }
+                            _editedFiles[t.Id] = new EditSnapshot { Path = path, OldText = old };
                         }
                     }
                     catch { }
@@ -503,27 +580,46 @@ namespace ClaudeCode.VisualStudio
             }).FireAndForget();
         }
 
-        private void PickWorkingDir()
+        // Open a VS diff window comparing the file before Claude's edit (temp) to the new content.
+        private async System.Threading.Tasks.Task ShowEditAsync(EditSnapshot snap)
         {
-            ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            if (snap == null || string.IsNullOrEmpty(snap.Path)) return;
+            try
             {
+                if (snap.OldText == null) { await _ide.OpenFileAsync(snap.Path); return; }
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                using (var dlg = new System.Windows.Forms.FolderBrowserDialog())
-                {
-                    dlg.Description = "Select the working directory Claude should operate in";
-                    if (!string.IsNullOrEmpty(_cwd) && Directory.Exists(_cwd)) dlg.SelectedPath = _cwd;
-                    if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-                    var chosen = dlg.SelectedPath;
-                    if (string.IsNullOrEmpty(chosen) || !Directory.Exists(chosen)) return;
 
-                    _cwd = chosen;
-                    _cwdUserSet = true;
-                    _optionsDirty = true;   // next send restarts the session in the new working dir
-                    Log.Write("working dir changed to " + _cwd);
-                    _host.PostMessage("init", new { cwd = _cwd });
-                    SendContext();
+                var dir = Path.Combine(Path.GetTempPath(), "ClaudeCodeVS", "diff");
+                Directory.CreateDirectory(dir);
+                var tmp = Path.Combine(dir, Guid.NewGuid().ToString("N") + Path.GetExtension(snap.Path));
+                File.WriteAllText(tmp, snap.OldText);
+
+                var diff = await VS.GetServiceAsync<SVsDifferenceService, IVsDifferenceService>();
+                var name = Path.GetFileName(snap.Path);
+                diff?.OpenComparisonWindow2(tmp, snap.Path, "Claude edit: " + name, name,
+                    "Before", "After (Claude)", null, null,
+                    (uint)__VSDIFFSERVICEOPTIONS.VSDIFFOPT_LeftFileIsTemporary);
+            }
+            catch (Exception ex)
+            {
+                Log.Write("ShowEdit failed: " + ex.Message);
+                try { await _ide.OpenFileAsync(snap.Path); } catch { }
+            }
+        }
+
+        // Enumerate workspace files for the @-mention picker.
+        private void SendFiles()
+        {
+            var cwd = _cwd;
+            _ = System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var files = IdeContextService.EnumerateWorkspaceFiles(cwd, 800);
+                    _host.PostMessage("files", new { files });
                 }
-            }).FireAndForget();
+                catch { }
+            });
         }
 
         private void HandleCompact()
@@ -569,7 +665,26 @@ namespace ClaudeCode.VisualStudio
         {
             _session?.Dispose();
             _session = null;
+            _pendingResumeId = null;
+            _record = null;
+            SessionStore.Clear(_cwd);
             _host.PostMessage("clear", new { });
+        }
+
+        // Persist a turn to the per-cwd session store so the conversation can be restored later.
+        private void AppendHistory(string role, string text)
+        {
+            try
+            {
+                if (_record == null) _record = new SessionRecord();
+                _record.Messages.Add(new StoredMessage { Role = role, Text = text ?? string.Empty });
+                _record.SessionId = _session?.SessionId ?? _record.SessionId;
+                _record.Model = _model;
+                _record.Mode = _permissionMode;
+                _record.Effort = _effort;
+                SessionStore.Save(_cwd, _record);
+            }
+            catch { }
         }
 
         private static List<ImageInput> ParseImages(JsonElement payload)
@@ -596,7 +711,7 @@ namespace ClaudeCode.VisualStudio
             // (docked next to Solution Explorer) before the solution finishes opening, which
             // leaves the OnLoaded value stale (the user-home fallback) — re-resolve here once
             // the solution is actually loaded so claude runs in the project folder.
-            if (_session != null || _cwdUserSet) return;
+            if (_session != null) return;
             try
             {
                 var dir = await GetWorkingDirectoryAsync();

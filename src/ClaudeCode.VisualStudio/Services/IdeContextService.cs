@@ -20,6 +20,14 @@ namespace ClaudeCode.VisualStudio.Services
         public bool HasSelection;
     }
 
+    public sealed class DiagnosticItem
+    {
+        public string Level;       // "error" | "warning" | "info"
+        public string File;
+        public int Line;
+        public string Description;
+    }
+
     /// <summary>
     /// Reads editor/solution state from Visual Studio (active file, selection, open
     /// documents, workspace folders) and performs editor actions (open file at line).
@@ -80,6 +88,89 @@ namespace ClaudeCode.VisualStudio.Services
             }
             catch { }
             return result;
+        }
+
+        public async Task<List<DiagnosticItem>> GetDiagnosticsAsync(int max = 50)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            var list = new List<DiagnosticItem>();
+            try
+            {
+                var dte = await VS.GetServiceAsync<EnvDTE.DTE, EnvDTE.DTE>() as EnvDTE80.DTE2;
+                var errorItems = dte?.ToolWindows?.ErrorList?.ErrorItems;
+                if (errorItems != null)
+                {
+                    int count = errorItems.Count;
+                    for (int i = 1; i <= count && list.Count < max; i++)
+                    {
+                        try
+                        {
+                            var it = errorItems.Item(i);
+                            list.Add(new DiagnosticItem
+                            {
+                                Level = LevelName(it.ErrorLevel),
+                                File = it.FileName,
+                                Line = it.Line,
+                                Description = it.Description,
+                            });
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        private static string LevelName(EnvDTE80.vsBuildErrorLevel level)
+        {
+            switch (level)
+            {
+                case EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelHigh: return "error";
+                case EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelMedium: return "warning";
+                default: return "info";
+            }
+        }
+
+        /// <summary>Enumerate files under a root for @-mention, skipping build/VCS noise.</summary>
+        public static List<string> EnumerateWorkspaceFiles(string root, int max = 800)
+        {
+            var list = new List<string>();
+            try
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return list;
+                var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { "bin", "obj", ".git", ".vs", ".vscode", "node_modules", "packages", "dist", "TestResults" };
+                var stack = new Stack<string>();
+                stack.Push(root);
+                while (stack.Count > 0 && list.Count < max)
+                {
+                    var dir = stack.Pop();
+                    string[] entries;
+                    try { entries = Directory.GetFileSystemEntries(dir); } catch { continue; }
+                    foreach (var e in entries)
+                    {
+                        if (list.Count >= max) break;
+                        var name = Path.GetFileName(e);
+                        if (Directory.Exists(e))
+                        {
+                            if (!skip.Contains(name) && !name.StartsWith(".")) stack.Push(e);
+                        }
+                        else
+                        {
+                            try { list.Add(GetRelative(root, e)); } catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        private static string GetRelative(string root, string path)
+        {
+            var r = root.EndsWith("\\") ? root : root + "\\";
+            return path.StartsWith(r, StringComparison.OrdinalIgnoreCase) ? path.Substring(r.Length).Replace('\\', '/') : path;
         }
 
         public async Task<List<string>> GetWorkspaceFoldersAsync()
