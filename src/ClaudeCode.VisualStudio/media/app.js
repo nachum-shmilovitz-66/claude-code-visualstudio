@@ -141,8 +141,10 @@
       if (p.model) cur.model = p.model;
       if (p.permissionMode) cur.mode = p.permissionMode;
       if (p.effort) cur.effort = p.effort;
+      if (typeof p.showThinking === "boolean") thinkingVisible = p.showThinking;
       applyEffortsForModel();
       updateModeLabel();
+      applyThinkingVisibility();
     },
     commands: (p) => { slashCommands = p.commands || []; },
     files: (p) => { fileList = p.files || []; if (cOpen === "at") filterAt(); },
@@ -195,6 +197,7 @@
       if (p.model) cur.model = p.model;
       if (p.mode) { cur.mode = p.mode; updateModeLabel(); }
       if (p.effort) cur.effort = p.effort;
+      if (typeof p.showThinking === "boolean") { thinkingVisible = p.showThinking; applyThinkingVisibility(); }
       applyEffortsForModel();
       const msgs = p.messages || [];
       if (msgs.length) { const d = document.createElement("div"); d.className = "compacted-divider"; d.innerHTML = "<span>Restored previous conversation</span>"; els.messages.appendChild(d); }
@@ -508,7 +511,7 @@
       if (dd) dd.textContent = "(" + e.name + " — " + effortDesc(e.id) + ")";
     });
     const tt = els.cpop.querySelector("#thinkToggle");
-    if (tt) tt.addEventListener("click", () => { thinkingVisible = !thinkingVisible; applyThinkingVisibility(); renderMode(); });
+    if (tt) tt.addEventListener("click", () => { thinkingVisible = !thinkingVisible; post("setShowThinking", { on: thinkingVisible }); applyThinkingVisibility(); renderMode(); });
   }
 
   // ---- @-mention file picker ----

@@ -26,6 +26,7 @@ namespace ClaudeCode.VisualStudio
         private string _model = "default";
         private string _permissionMode = "default";   // safest default: ask before edits
         private string _effort = "none";
+        private bool _showThinking = true;
 
         private bool _optionsDirty;
         private bool _compacting;
@@ -109,14 +110,21 @@ namespace ClaudeCode.VisualStudio
                 case "setModel":
                     _model = InputValidation.SanitizeChoice(GetStr(message.Payload, "model"), InputValidation.AllowedModels, "default");
                     _optionsDirty = true;
+                    SaveOptions();
                     break;
                 case "setPermissionMode":
                     _permissionMode = InputValidation.SanitizeChoice(GetStr(message.Payload, "mode"), InputValidation.AllowedModes, "default");
                     _optionsDirty = true;
+                    SaveOptions();
                     break;
                 case "setEffort":
                     _effort = InputValidation.SanitizeChoice(GetStr(message.Payload, "effort"), InputValidation.AllowedEfforts, "none");
                     _optionsDirty = true;
+                    SaveOptions();
+                    break;
+                case "setShowThinking":
+                    _showThinking = GetBool(message.Payload, "on", true);
+                    SaveOptions();
                     break;
                 case "getContext":
                     SendContext();
@@ -248,11 +256,12 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.15",
+                version = "0.2.17",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
                 permissionMode = _permissionMode,
+                showThinking = _showThinking,
                 models = new object[]
                 {
                     new { id = "default", name = "Default (recommended)", desc = "Opus 4.8 with 1M context · Most capable for complex work" },
@@ -276,23 +285,26 @@ namespace ClaudeCode.VisualStudio
                     var dir = await GetWorkingDirectoryAsync();
                     if (!string.IsNullOrEmpty(dir)) { _cwd = dir; _host.PostMessage("init", new { cwd = _cwd }); }
 
-                    // Restore the prior conversation for this working dir, if any.
+                    // Restore the prior options (and conversation, if any) for this working dir.
                     if (_record == null)
                     {
                         var rec = SessionStore.Load(_cwd);
-                        if (rec != null && rec.Messages != null && rec.Messages.Count > 0)
+                        if (rec != null)
                         {
+                            bool hasMsgs = rec.Messages != null && rec.Messages.Count > 0;
                             _record = rec;
-                            _pendingResumeId = rec.SessionId;
+                            if (hasMsgs && !string.IsNullOrEmpty(rec.SessionId)) _pendingResumeId = rec.SessionId;
                             _model = InputValidation.SanitizeChoice(rec.Model, InputValidation.AllowedModels, "default");
                             _permissionMode = InputValidation.SanitizeChoice(rec.Mode, InputValidation.AllowedModes, "default");
                             _effort = InputValidation.SanitizeChoice(rec.Effort, InputValidation.AllowedEfforts, "none");
+                            _showThinking = rec.ShowThinking;
                             _host.PostMessage("restore", new
                             {
-                                messages = rec.Messages,
+                                messages = hasMsgs ? rec.Messages : new System.Collections.Generic.List<StoredMessage>(),
                                 model = _model,
                                 mode = _permissionMode,
                                 effort = _effort,
+                                showThinking = _showThinking,
                             });
                         }
                     }
@@ -682,6 +694,24 @@ namespace ClaudeCode.VisualStudio
                 _record.Model = _model;
                 _record.Mode = _permissionMode;
                 _record.Effort = _effort;
+                _record.ShowThinking = _showThinking;
+                SessionStore.Save(_cwd, _record);
+            }
+            catch { }
+        }
+
+        // Persist the current composer options (model / permission mode / effort / show-thinking)
+        // immediately when the user changes one, even before any message is sent — otherwise an
+        // option change followed by closing VS would be lost.
+        private void SaveOptions()
+        {
+            try
+            {
+                if (_record == null) _record = new SessionRecord();
+                _record.Model = _model;
+                _record.Mode = _permissionMode;
+                _record.Effort = _effort;
+                _record.ShowThinking = _showThinking;
                 SessionStore.Save(_cwd, _record);
             }
             catch { }
@@ -745,6 +775,16 @@ namespace ClaudeCode.VisualStudio
         private static string GetStr(JsonElement el, string name)
             => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
                 ? v.GetString() : null;
+
+        private static bool GetBool(JsonElement el, string name, bool fallback)
+        {
+            if (el.ValueKind == JsonValueKind.Object && el.TryGetProperty(name, out var v))
+            {
+                if (v.ValueKind == JsonValueKind.True) return true;
+                if (v.ValueKind == JsonValueKind.False) return false;
+            }
+            return fallback;
+        }
 
         private void TryOpenExternal(string url)
         {

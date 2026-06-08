@@ -28,7 +28,7 @@ namespace ClaudeCode.VisualStudio
         {
             public Pane()
             {
-                BitmapImageMoniker = KnownMonikers.StatusInformation;
+                BitmapImageMoniker = KnownMonikers.CommentSparkle;
             }
         }
     }
