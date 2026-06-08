@@ -1,5 +1,8 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+[assembly: InternalsVisibleTo("ClaudeCode.VisualStudio.Tests")]
 
 [assembly: AssemblyTitle("Claude Code for Visual Studio")]
 [assembly: AssemblyDescription("Claude Code agentic coding assistant for Visual Studio 2022 and 2026.")]

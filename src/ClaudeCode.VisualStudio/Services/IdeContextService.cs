@@ -167,7 +167,7 @@ namespace ClaudeCode.VisualStudio.Services
             return list;
         }
 
-        private static string GetRelative(string root, string path)
+        internal static string GetRelative(string root, string path)
         {
             var r = root.EndsWith("\\") ? root : root + "\\";
             return path.StartsWith(r, StringComparison.OrdinalIgnoreCase) ? path.Substring(r.Length).Replace('\\', '/') : path;
@@ -209,7 +209,7 @@ namespace ClaudeCode.VisualStudio.Services
             catch { }
         }
 
-        private static string GuessLanguage(string path)
+        internal static string GuessLanguage(string path)
         {
             if (string.IsNullOrEmpty(path)) return "";
             var ext = Path.GetExtension(path).ToLowerInvariant();

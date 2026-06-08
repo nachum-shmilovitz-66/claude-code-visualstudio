@@ -76,6 +76,7 @@
     <Compile Include="Services\ThemeService.cs" />
     <Compile Include="Services\AccountService.cs" />
     <Compile Include="Services\SessionStore.cs" />
+    <Compile Include="Services\InputValidation.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="media\index.html">

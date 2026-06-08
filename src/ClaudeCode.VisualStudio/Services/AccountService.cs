@@ -154,7 +154,7 @@ namespace ClaudeCode.VisualStudio.Services
             }
         }
 
-        private static void ParseAccountInfo(AccountData data, string json)
+        internal static void ParseAccountInfo(AccountData data, string json)
         {
             try
             {
@@ -196,7 +196,7 @@ namespace ClaudeCode.VisualStudio.Services
         // Parses the api.anthropic.com/api/oauth/usage response:
         //   { "five_hour": { "utilization": 2, "resets_at": "..." },
         //     "seven_day": {...}, "seven_day_opus": null, "seven_day_sonnet": {...} }
-        private static void ParseUsageOAuth(AccountData data, string json)
+        internal static void ParseUsageOAuth(AccountData data, string json)
         {
             try
             {
@@ -225,7 +225,7 @@ namespace ClaudeCode.VisualStudio.Services
         }
 
         // ISO-8601 reset timestamp -> short human delta ("4h", "5d", "12m").
-        private static string FormatReset(string iso)
+        internal static string FormatReset(string iso)
         {
             if (string.IsNullOrEmpty(iso)) return null;
             if (!DateTimeOffset.TryParse(iso, System.Globalization.CultureInfo.InvariantCulture,
@@ -239,7 +239,7 @@ namespace ClaudeCode.VisualStudio.Services
             return Math.Max(1, (int)Math.Round(delta.TotalMinutes)) + "m";
         }
 
-        private static string FormatPlanName(string raw)
+        internal static string FormatPlanName(string raw)
         {
             if (raw == null) return null;
             switch (raw.ToLowerInvariant())
