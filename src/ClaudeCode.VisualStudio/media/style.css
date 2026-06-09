@@ -45,6 +45,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .msg .bubble th { background: var(--code-bg); font-weight: 600; }
 .msg .bubble tr:nth-child(even) td { background: rgba(255,255,255,.02); }
 .note { color: var(--fg-dim); font-size: 12px; font-style: italic; }
+.note.err { color: var(--red); font-style: normal; }
 .compacted-divider { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--fg-dim); font-size: 12px; }
 .compacted-divider::before, .compacted-divider::after { content: ""; flex: 1; height: 1px; background: repeating-linear-gradient(90deg, var(--fg-dim) 0, var(--fg-dim) 3px, transparent 3px, transparent 7px); opacity: .4; }
 .compacted-divider span { white-space: nowrap; }
