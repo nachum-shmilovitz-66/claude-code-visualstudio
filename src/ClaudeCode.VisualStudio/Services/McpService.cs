@@ -16,7 +16,8 @@ namespace ClaudeCode.VisualStudio.Services
         public string Status;   // raw status text, e.g. "Connected", "Failed to connect"
         public bool Ok;         // true when the server reports a healthy connection
         public string Scope;    // "Project" (project .mcp.json) | "User" | "claude.ai"
-        public string MissingEnv; // name of a ${ENV} the project config references that is unset/empty, if any
+        public string MissingEnv;      // name of a ${ENV} the project config references that is unset/empty
+        public string EnvMaybeInvalid; // a ${ENV} that IS set but the server still failed (likely bad token)
     }
 
     /// <summary>
@@ -107,7 +108,10 @@ namespace ClaudeCode.VisualStudio.Services
                         if (srv == null) continue;
                         srv.Scope = "Project";
 
-                        // Flag the first ${VAR} this server references that is unset/empty in the process env.
+                        // Inspect the ${VAR}s this server references. An unset/empty one is the likely
+                        // cause of failure (MissingEnv). If they are all set but the server still failed,
+                        // the value is probably a bad/expired token (EnvMaybeInvalid).
+                        string firstSet = null;
                         foreach (Match m in Regex.Matches(prop.Value.GetRawText(), @"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"))
                         {
                             var name = m.Groups[1].Value;
@@ -116,7 +120,10 @@ namespace ClaudeCode.VisualStudio.Services
                                 srv.MissingEnv = name;
                                 break;
                             }
+                            if (firstSet == null) firstSet = name;
                         }
+                        if (srv.MissingEnv == null && !srv.Ok && firstSet != null)
+                            srv.EnvMaybeInvalid = firstSet;
                     }
                 }
             }

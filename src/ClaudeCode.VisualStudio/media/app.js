@@ -460,8 +460,11 @@
               + '<div class="mcp-body"><div class="mcp-name">' + window.md.esc(s.name) + '</div>'
               + '<div class="mcp-detail">' + window.md.esc(s.detail || "") + '</div>';
             if (s.missingEnv) h += '<div class="mcp-hint">⚠ env var <span class="cmd-name">' + window.md.esc(s.missingEnv) + '</span> not set — set it, then restart VS</div>';
-            if (cls === "warn") h += '<div class="mcp-hint">needs OAuth — <button class="mcp-act" data-act="auth">Authenticate…</button> opens a terminal; run <span class="cmd-name">/mcp</span></div>';
-            h += '</div><div class="mcp-status ' + cls + '">' + window.md.esc(s.status || "") + '</div></div>';
+            else if (s.envMaybeInvalid) h += '<div class="mcp-hint">⚠ token <span class="cmd-name">' + window.md.esc(s.envMaybeInvalid) + '</span> present but rejected — likely expired/invalid; update it, then restart VS</div>';
+            h += '</div>';
+            if (cls === "warn") h += '<button class="mcp-status warn mcp-authbtn" data-act="auth" title="Click to authenticate — opens a terminal, then run /mcp">' + window.md.esc(s.status || "") + '</button>';
+            else h += '<div class="mcp-status ' + cls + '">' + window.md.esc(s.status || "") + '</div>';
+            h += '</div>';
           });
         });
       }
@@ -470,7 +473,7 @@
     showTop(h);
     const rb = els.popover.querySelector(".mcp-refresh");
     if (rb) rb.addEventListener("click", () => { lastMcp = null; lastMcpError = null; post("getMcp"); renderMcp(); });
-    els.popover.querySelectorAll('.mcp-act[data-act="auth"]').forEach((b) => b.addEventListener("click", () => { post("mcpAuth"); b.textContent = "opening terminal…"; b.disabled = true; }));
+    els.popover.querySelectorAll('[data-act="auth"]').forEach((b) => b.addEventListener("click", () => { post("mcpAuth"); b.textContent = "opening terminal…"; b.disabled = true; }));
     const lm = els.popover.querySelector(".mcp-foot .ulink");
     if (lm) lm.addEventListener("click", (e) => { e.preventDefault(); post("openExternal", { url: lm.dataset.url }); });
   }

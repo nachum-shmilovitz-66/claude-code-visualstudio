@@ -250,7 +250,7 @@ namespace ClaudeCode.VisualStudio
                     var servers = await McpService.ListAsync(_cwd);
                     var list = new List<object>();
                     foreach (var s in servers)
-                        list.Add(new { name = s.Name, detail = s.Detail, status = s.Status, ok = s.Ok, scope = s.Scope, missingEnv = s.MissingEnv });
+                        list.Add(new { name = s.Name, detail = s.Detail, status = s.Status, ok = s.Ok, scope = s.Scope, missingEnv = s.MissingEnv, envMaybeInvalid = s.EnvMaybeInvalid });
                     _host.PostMessage("mcpList", new { servers = list });
                 }
                 catch (Exception ex)
@@ -314,7 +314,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.20",
+                version = "0.2.21",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
