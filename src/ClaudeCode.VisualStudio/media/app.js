@@ -641,8 +641,13 @@
     q = (q || "").toLowerCase().replace(/^\//, "");
     const ext = extCmds().map((c) => ({ ...c, kind: "ext" }));
     const extNames = new Set(ext.map((c) => c.name));
-    const cli = slashCommands.filter((c) => !extNames.has(c)).map((c) => ({ name: c, desc: "Insert /" + c, kind: "cli" }));
-    palItems = ext.concat(cli).filter((c) => c.name.toLowerCase().includes(q));
+    // Drop MCP prompt commands (mcp__server__name) — noise in the palette.
+    const cli = slashCommands
+      .filter((c) => !extNames.has(c) && c.indexOf("mcp__") !== 0)
+      .map((c) => ({ name: c, desc: "Insert /" + c, kind: "cli" }));
+    palItems = ext.concat(cli)
+      .filter((c) => c.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
     palIndex = 0; renderPalette();
   }
   function renderPalette() {
