@@ -1,12 +1,14 @@
 # Claude Code for Visual Studio
 
+> **Latest release:** <!-- managed:version -->v0.2.19<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
+
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2022 and Visual Studio 2026** as a native tool-window chat — the same kind of
 experience as the VS Code extension. It drives the real `claude` CLI under the hood, so you get
 the full agent: streaming responses, tool use, file edits, and multi-turn conversations, scoped
 to your open solution.
 
-> Status: **v0.1 — working core.** See the [Feature parity](#feature-parity) matrix for exactly
+> Status: **working core.** See the [Feature parity](#feature-parity) matrix for exactly
 > what is implemented and what is on the roadmap.
 
 ---
@@ -60,8 +62,11 @@ your MCP servers, hooks, and settings — exactly like running `claude` in a ter
 ## Install
 
 ### From the built VSIX
-1. Build (see below) or grab `src/ClaudeCode.VisualStudio/bin/Release/ClaudeCode.VisualStudio.vsix`.
+1. Download the latest `ClaudeCode.VisualStudio.vsix` from the
+   [Releases page](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
+   (or build it yourself — see below).
 2. Double-click the `.vsix` and let the **VSIX Installer** add it to VS 2022 and/or 2026.
+   (The VSIX is community-built and unsigned, so VS shows a "publisher not verified" prompt — click **Install**.)
 3. Restart Visual Studio.
 4. Open the panel: **View ▸ Other Windows ▸ Claude Code**.
 
@@ -180,7 +185,7 @@ You must have a valid Claude Code subscription/credentials to use it.
 ## Publishing to the Visual Studio Marketplace
 
 This is an **unofficial, community** extension. The artifacts below publish the built VSIX
-(`dist\ClaudeCode.VisualStudio.vsix`, v0.2.15) to the Visual Studio Marketplace with
+(`dist\ClaudeCode.VisualStudio.vsix`) to the Visual Studio Marketplace with
 `VsixPublisher.exe`.
 
 Files involved:
