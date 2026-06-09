@@ -76,6 +76,8 @@
     <Compile Include="Services\ThemeService.cs" />
     <Compile Include="Services\AccountService.cs" />
     <Compile Include="Services\McpService.cs" />
+    <Compile Include="Services\SlashCommandService.cs" />
+    <Compile Include="Services\SlashCommandCache.cs" />
     <Compile Include="Services\SessionStore.cs" />
     <Compile Include="Services\InputValidation.cs" />
   </ItemGroup>

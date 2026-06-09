@@ -46,6 +46,20 @@ namespace ClaudeCode.VisualStudio.Services
             return new Result { FileName = "claude", ResolvedPath = "claude (PATH)" };
         }
 
+        /// <summary>
+        /// True when an actual claude launcher file was found (override or a known/PATH candidate).
+        /// False means we'd fall back to a bare "claude" on PATH — i.e. the CLI is likely not
+        /// installed. Used to drive the first-run "install the CLI" guidance.
+        /// </summary>
+        public static bool IsInstalled()
+        {
+            var overridePath = Environment.GetEnvironmentVariable("CLAUDE_CODE_VS_CLI");
+            if (!string.IsNullOrEmpty(overridePath) && File.Exists(overridePath)) return true;
+            foreach (var candidate in Candidates())
+                if (File.Exists(candidate)) return true;
+            return false;
+        }
+
         internal static Result Wrap(string path)
         {
             var isCmd = path.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) ||

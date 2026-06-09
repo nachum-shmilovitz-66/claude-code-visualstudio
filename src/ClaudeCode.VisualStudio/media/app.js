@@ -10,13 +10,14 @@
     plusBtn: $("plusBtn"), slashBtn: $("slashBtn"), ringBtn: $("ringBtn"), ringFg: $("ringFg"),
     modeBtn: $("modeBtn"), modeLabel: $("modeLabel"),
     statusText: $("statusText"), usage: $("usage"), attachments: $("attachments"),
-    popover: $("popover"), cpop: $("cpop"),
+    popover: $("popover"), cpop: $("cpop"), setupBanner: $("setupBanner"),
   };
 
   let running = false, currentAssistant = null, currentTurn = null, currentThinking = null;
   const toolCards = new Map();
   let attachments = [];
   let slashCommands = [];
+  let commandsLoading = false;
   let fileList = [], atQuery = "", atItems = [], atIndex = 0;
   let models = [], modes = [], efforts = [], effortsByModel = {};
   let cur = { model: "default", mode: "default", effort: "none" };
@@ -146,7 +147,9 @@
       updateModeLabel();
       applyThinkingVisibility();
     },
-    commands: (p) => { slashCommands = p.commands || []; },
+    commands: (p) => { slashCommands = p.commands || []; commandsLoading = false; if (cOpen === "slash") { const q = els.cpop.querySelector("#palq"); filterPalette(q ? q.value : ""); } },
+    commandsLoading: (p) => { commandsLoading = !!p.on; if (cOpen === "slash") { const q = els.cpop.querySelector("#palq"); filterPalette(q ? q.value : ""); } },
+    setup: (p) => renderSetupBanner(p),
     files: (p) => { fileList = p.files || []; if (cOpen === "at") filterAt(); },
     context: (p) => mergeContextIde(p),
     theme: (p) => applyTheme(p),
@@ -189,7 +192,21 @@
       if (topOpen === "usage") renderUsage();
       if (topOpen === "context") renderContext();
     },
-    error: (p) => { removeThinking(); const b = addMsg("assistant"); b.innerHTML = '<span style="color:var(--red)">⚠ ' + window.md.esc(p.message || "Error") + "</span>"; },
+    error: (p) => {
+      removeThinking();
+      const msg = p.message || "Error";
+      const low = msg.toLowerCase();
+      let extra = "";
+      if (/log ?in|logged in|auth|credential|unauthor|could not launch|exited \(code/.test(low))
+        extra = '<div class="err-actions"><button class="sb-btn" data-act="login">Open terminal to log in</button></div>';
+      else if (/credit|billing|subscription|quota|insufficient|payment|plan/.test(low))
+        extra = '<div class="err-note">Claude Code needs a paid Pro/Max plan or API credits — a free account can\'t run it.</div>';
+      const b = addMsg("assistant");
+      b.innerHTML = '<span style="color:var(--red)">⚠ ' + window.md.esc(msg) + "</span>" + extra;
+      const lb = b.querySelector('[data-act="login"]');
+      if (lb) lb.addEventListener("click", () => post("openClaudeTerminal"));
+      post("recheckSetup"); // refresh the onboarding banner after a failure
+    },
     system: (p) => { if (p.subtype === "init" && p.model) ctx.model = p.model; },
     clear: () => { els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear(); },
     restore: (p) => {
@@ -469,7 +486,7 @@
         });
       }
     }
-    h += '<div class="note mcp-foot"><a class="ulink" data-url="https://modelcontextprotocol.io/">Learn more about MCP</a></div>';
+    h += '<div class="note mcp-foot"><a class="ulink" href="#" data-url="https://modelcontextprotocol.io/">Learn more about MCP</a></div>';
     showTop(h);
     const rb = els.popover.querySelector(".mcp-refresh");
     if (rb) rb.addEventListener("click", () => { lastMcp = null; lastMcpError = null; post("getMcp"); renderMcp(); });
@@ -611,6 +628,7 @@
   }
   function openSlash() {
     closeTop(); cOpen = "slash"; activeC();
+    if (!slashCommands.length) { commandsLoading = true; post("getCommands"); } // lazy fallback if eager fetch hasn't landed
     const q0 = els.input.value.startsWith("/") ? els.input.value.slice(1) : "";
     showC('<input class="palette-input" id="palq" placeholder="Search commands…" value="' + window.md.esc(q0) + '" /><div id="pallist"></div>');
     const q = els.cpop.querySelector("#palq");
@@ -622,18 +640,22 @@
   function filterPalette(q) {
     q = (q || "").toLowerCase().replace(/^\//, "");
     const ext = extCmds().map((c) => ({ ...c, kind: "ext" }));
-    const cli = slashCommands.map((c) => ({ name: c, desc: "Insert /" + c, kind: "cli" }));
+    const extNames = new Set(ext.map((c) => c.name));
+    const cli = slashCommands.filter((c) => !extNames.has(c)).map((c) => ({ name: c, desc: "Insert /" + c, kind: "cli" }));
     palItems = ext.concat(cli).filter((c) => c.name.toLowerCase().includes(q));
     palIndex = 0; renderPalette();
   }
   function renderPalette() {
     const list = els.cpop.querySelector("#pallist"); if (!list) return;
-    if (!palItems.length) { list.innerHTML = '<div class="note" style="padding:8px">No matching commands</div>'; return; }
+    // Cold-cache: the full CLI set is still being fetched (CLI startup + SessionStart hooks).
+    const loadingNote = (commandsLoading && !slashCommands.length)
+      ? '<div class="note pal-loading" style="padding:8px">Loading commands…</div>' : "";
+    if (!palItems.length) { list.innerHTML = loadingNote || '<div class="note" style="padding:8px">No matching commands</div>'; return; }
     let h = "";
     palItems.forEach((c, i) => {
       h += '<button class="menu-item' + (i === palIndex ? " sel" : "") + '" data-i="' + i + '"><span class="mi-icon">/</span><span><span class="cmd-name">' + window.md.esc(c.name) + '</span> <span class="mi-desc">' + window.md.esc(c.desc || "") + "</span></span></button>";
     });
-    list.innerHTML = h;
+    list.innerHTML = h + loadingNote;
     list.querySelectorAll(".menu-item").forEach((b) => b.addEventListener("click", () => runPalette(palItems[+b.dataset.i])));
   }
   function paletteKey(e) {
@@ -649,6 +671,38 @@
     closeC(); els.input.focus(); autoGrow();
     if (c.kind === "ext" && c.run) c.run();
     else { els.input.value = "/" + c.name + " "; autoGrow(); }
+  }
+
+  // ---- first-run onboarding banner ----
+  function renderSetupBanner(p) {
+    const el = els.setupBanner; if (!el) return;
+    p = p || {};
+    let html = "";
+    if (!p.cliFound) {
+      const installBtn = p.npmFound
+        ? '<button class="sb-btn primary" data-act="install">Install CLI</button>'
+        : '<button class="sb-btn" data-act="node">Get Node.js</button>';
+      const hint = p.npmFound
+        ? 'Install it (runs in a terminal), then Re-check — a VS restart may be needed for PATH:'
+        : 'Node.js / npm not found. Install Node.js first, then re-check:';
+      html = '<div class="sb-row"><span class="sb-ico">⚠</span><div class="sb-text"><b>Claude CLI not found.</b> This extension drives your locally-installed Claude Code CLI — it does not bundle one. ' + hint + '<br><code>npm install -g @anthropic-ai/claude-code</code></div></div>'
+           + '<div class="sb-actions">' + installBtn + '<button class="sb-btn" data-act="docs">Install guide</button><button class="sb-btn" data-act="recheck">Re-check</button></div>';
+    } else if (!p.loggedIn) {
+      html = '<div class="sb-row"><span class="sb-ico">🔑</span><div class="sb-text"><b>Not signed in to Claude.</b> Login is handled by the CLI. Open a terminal and run <code>/login</code>. Claude Code needs a paid <b>Pro/Max</b> plan or API credits — a free account can\'t run it.</div></div>'
+           + '<div class="sb-actions"><button class="sb-btn primary" data-act="login">Open terminal to log in</button><button class="sb-btn" data-act="recheck">I\'ve logged in — re-check</button></div>';
+    } else {
+      el.classList.add("hidden"); el.innerHTML = ""; return;
+    }
+    el.innerHTML = html;
+    el.classList.remove("hidden");
+    el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
+      const a = b.dataset.act;
+      if (a === "login") post("openClaudeTerminal");
+      else if (a === "install") { post("installCli"); b.textContent = "installing… (see terminal)"; b.disabled = true; }
+      else if (a === "recheck") post("recheckSetup");
+      else if (a === "node") post("openExternal", { url: "https://nodejs.org/en/download" });
+      else if (a === "docs") post("openExternal", { url: "https://docs.claude.com/en/docs/claude-code/setup" });
+    }));
   }
 
   function closeAll() { closeTop(); closeC(); }

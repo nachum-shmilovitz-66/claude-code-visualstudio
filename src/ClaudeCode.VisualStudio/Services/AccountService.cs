@@ -106,6 +106,16 @@ namespace ClaudeCode.VisualStudio.Services
             };
         }
 
+        /// <summary>
+        /// True when a stored CLI credential/token exists (no network call). Drives the
+        /// first-run "log in" guidance — distinct from whether that token is still valid.
+        /// </summary>
+        public static bool HasStoredToken()
+        {
+            try { return !string.IsNullOrEmpty(ReadToken(out _)); }
+            catch { return false; }
+        }
+
         private static string ReadToken(out string authMethod)
         {
             authMethod = "Claude AI";
