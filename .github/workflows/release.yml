@@ -1,0 +1,50 @@
+name: release
+
+# Auto-build the VSIX and publish a GitHub Release whenever a v* tag is pushed.
+# The repo's pre-push hook creates those tags, so a normal `git push` is enough:
+#   push -> pre-push tags vX.Y.Z -> this workflow builds + releases the .vsix.
+#
+# workflow_dispatch runs the build only (no release), so you can validate the
+# CI build on demand from the Actions tab without cutting a release.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # required for softprops/action-gh-release to create the release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore (PackageReference)
+        run: msbuild src\ClaudeCode.VisualStudio\ClaudeCode.VisualStudio.csproj -t:Restore -p:Configuration=Release
+
+      - name: Build Release (produces dist\ClaudeCode.VisualStudio.vsix)
+        run: msbuild src\ClaudeCode.VisualStudio\ClaudeCode.VisualStudio.csproj -t:Build -p:Configuration=Release
+
+      - name: Upload VSIX as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeCode.VisualStudio.vsix
+          path: dist/ClaudeCode.VisualStudio.vsix
+          if-no-files-found: error
+
+      # Only when triggered by a tag push: create/update the Release for that
+      # tag and attach the freshly built .vsix.
+      - name: Publish Release + attach VSIX
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: dist/ClaudeCode.VisualStudio.vsix
