@@ -217,6 +217,8 @@ namespace ClaudeCode.VisualStudio.Services
         private static bool IsSafeSessionId(string s)
         {
             if (s.Length == 0 || s.Length > 100) return false;
+            // First char must be alphanumeric so the value can't parse as another CLI flag.
+            if (!char.IsLetterOrDigit(s[0])) return false;
             foreach (var c in s)
                 if (!(char.IsLetterOrDigit(c) || c == '-' || c == '_')) return false;
             return true;

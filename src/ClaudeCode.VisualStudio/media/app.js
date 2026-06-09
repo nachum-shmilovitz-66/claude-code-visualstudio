@@ -243,8 +243,12 @@
   // Pick the effort list for the current model, falling back to the flat list.
   // Clamp cur.effort to the new list so the slider never points at an
   // unsupported level after a model switch.
+  // Own-property lookup: cur.model is user-typed, so a plain obj[key] would resolve
+  // Object.prototype members ("constructor", "hasOwnProperty", …) to inherited functions.
+  function own(o, k) { return o && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined; }
   function applyEffortsForModel() {
-    const list = (effortsByModel && effortsByModel[cur.model]) || efforts;
+    // Custom model ids have no per-model entry; assume the full (default/Opus) range.
+    const list = own(effortsByModel, cur.model) || own(effortsByModel, "default") || efforts;
     if (list && list.length) efforts = list;
     if (!efforts.some((e) => e.id === cur.effort)) {
       cur.effort = (efforts[0] || { id: "none" }).id;
@@ -257,11 +261,11 @@
     }
   }
   // Maps a model picker id to its wire name for the "Switched to" divider.
-  const MODEL_WIRE = { default: "claude-opus-4-8[1m]", sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5-20251001" };
+  const MODEL_WIRE = { default: "claude-opus-4-8[1m]", fable: "claude-fable-5", sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5-20251001" };
   function showModelDivider(id) {
     const d = document.createElement("div");
     d.className = "compacted-divider";
-    d.innerHTML = "<span>Switched to " + window.md.esc(MODEL_WIRE[id] || id) + "</span>";
+    d.innerHTML = "<span>Switched to " + window.md.esc(own(MODEL_WIRE, id) || id) + "</span>";
     els.messages.appendChild(d); scrollDown();
   }
   function effortDesc(id) {
@@ -389,17 +393,48 @@
     models.forEach((m) => {
       h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
+    const isCustom = !!cur.model && !models.some((m) => m.id === cur.model);
+    h += '<div class="opt' + (isCustom ? " sel" : "") + '" data-id="__custom"><div class="obody"><div class="oname">Custom model…</div><div class="odesc">' + (isCustom ? window.md.esc(cur.model) : "Any model id or alias, e.g. claude-fable-5") + '</div></div>' + (isCustom ? '<div class="ochk">✓</div>' : "") + "</div>";
     const ei = Math.max(0, efforts.findIndex((x) => x.id === cur.effort));
     const curName = (efforts[ei] || {}).name || "Off";
     h += '<div class="effort-row"><div class="elabel">' + DUMBBELL + ' Effort <small id="effdesc">(' + window.md.esc(curName + " — " + effortDesc(cur.effort)) + ')</small></div><input type="range" class="effort-slider" id="effslider" min="0" max="' + (efforts.length - 1) + '" value="' + ei + '" /></div>';
     showTop(h);
-    els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); renderModel(); } }));
+    els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => {
+      if (o.dataset.id === "__custom") { renderCustomModel(); return; }
+      if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); renderModel(); }
+    }));
     const sl = els.popover.querySelector("#effslider");
     if (sl) sl.addEventListener("input", () => {
       const e = efforts[+sl.value] || efforts[0];
       cur.effort = e.id; post("setEffort", { effort: cur.effort });
       const dd = els.popover.querySelector("#effdesc");
       if (dd) dd.textContent = "(" + e.name + " — " + effortDesc(e.id) + ")";
+    });
+  }
+
+  // Mirrors InputValidation.ModelIdShape on the host (which re-validates); this copy is UX only.
+  const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9.\[\]-]{0,63}$/;
+  function renderCustomModel() {
+    let h = '<h3>Custom model <button class="close-x">×</button></h3>';
+    h += '<input type="text" class="palette-input" id="customModel" placeholder="Model id or alias — Enter to apply, Esc to go back" spellcheck="false" />';
+    h += '<div class="note err" id="customModelErr"></div>';
+    showTop(h);
+    const inp = els.popover.querySelector("#customModel");
+    inp.value = models.some((m) => m.id === cur.model) ? "" : cur.model;
+    inp.focus();
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); renderModel(); return; }
+      if (e.key !== "Enter") return;
+      let v = inp.value.trim();
+      if (!MODEL_ID_RE.test(v)) {
+        els.popover.querySelector("#customModelErr").textContent = "⚠ Letters, digits, dots, dashes and [] only — no spaces, max 64 chars.";
+        return;
+      }
+      // A typed wire name of a built-in entry normalizes to its picker id so per-model
+      // gating (effort range, Auto-mode visibility) applies the same either way.
+      for (const k in MODEL_WIRE) if (MODEL_WIRE[k] === v) { v = k; break; }
+      if (v !== cur.model) { cur.model = v; post("setModel", { model: v }); applyEffortsForModel(); showModelDivider(v); }
+      renderModel();
     });
   }
   function renderUsage() {

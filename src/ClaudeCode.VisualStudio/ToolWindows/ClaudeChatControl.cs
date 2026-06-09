@@ -108,7 +108,7 @@ namespace ClaudeCode.VisualStudio
                     ResetSession();
                     break;
                 case "setModel":
-                    _model = InputValidation.SanitizeChoice(GetStr(message.Payload, "model"), InputValidation.AllowedModels, "default");
+                    _model = InputValidation.SanitizeModel(GetStr(message.Payload, "model"), "default");
                     _optionsDirty = true;
                     SaveOptions();
                     break;
@@ -408,7 +408,7 @@ namespace ClaudeCode.VisualStudio
             catch (Exception ex) { Log.Write("LaunchMcpAuthTerminal: " + ex.Message); }
         }
 
-        // Effort levels available per model. Opus exposes the full extended-thinking
+        // Effort levels available per model. Opus and Fable expose the full extended-thinking
         // range plus Ultracode workflows; Sonnet/Haiku expose progressively fewer.
         private static object BuildEffortsByModel()
         {
@@ -427,6 +427,7 @@ namespace ClaudeCode.VisualStudio
             return new System.Collections.Generic.Dictionary<string, object[]>
             {
                 ["default"] = opus,
+                ["fable"] = opus,
                 ["sonnet"] = sonnet,
                 ["haiku"] = haiku,
             };
@@ -436,7 +437,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.24",
+                version = "0.2.25",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -445,6 +446,7 @@ namespace ClaudeCode.VisualStudio
                 models = new object[]
                 {
                     new { id = "default", name = "Default (recommended)", desc = "Opus 4.8 with 1M context · Most capable for complex work" },
+                    new { id = "fable", name = "Fable", desc = "Fable 5 · Anthropic's newest, strongest coding model" },
                     new { id = "sonnet", name = "Sonnet", desc = "Sonnet 4.6 · Best for everyday tasks" },
                     new { id = "haiku", name = "Haiku", desc = "Haiku 4.5 · Fastest for quick answers" },
                 },
@@ -482,7 +484,7 @@ namespace ClaudeCode.VisualStudio
                             bool hasMsgs = rec.Messages != null && rec.Messages.Count > 0;
                             _record = rec;
                             if (hasMsgs && !string.IsNullOrEmpty(rec.SessionId)) _pendingResumeId = rec.SessionId;
-                            _model = InputValidation.SanitizeChoice(rec.Model, InputValidation.AllowedModels, "default");
+                            _model = InputValidation.SanitizeModel(rec.Model, "default");
                             _permissionMode = InputValidation.SanitizeChoice(rec.Mode, InputValidation.AllowedModes, "default");
                             _effort = InputValidation.SanitizeChoice(rec.Effort, InputValidation.AllowedEfforts, "none");
                             _showThinking = rec.ShowThinking;
