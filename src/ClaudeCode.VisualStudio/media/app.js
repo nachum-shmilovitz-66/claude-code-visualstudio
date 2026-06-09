@@ -480,10 +480,14 @@
       h += kv("Project", lastIde.claudeMdProject || "none");
       h += kv("User", lastIde.claudeMdUser || "none");
 
-      // MCP servers + tools from the CLI session
+      // MCP servers from the CLI session. Only shown once the session has
+      // actually reported them — a bare "(0)" before the first message is
+      // misleading (it reads as "no servers" when it just means "not loaded yet").
       const mcp = lastIde.mcpServers || [];
-      h += '<div class="sec">MCP servers (' + mcp.length + ")</div>";
-      h += mcp.length ? '<ul class="files">' + mcp.map((x) => "<li>" + window.md.esc(x) + "</li>").join("") + "</ul>" : '<div style="color:var(--fg-dim)">none configured</div>';
+      if (mcp.length) {
+        h += '<div class="sec">MCP servers (' + mcp.length + ")</div>";
+        h += '<ul class="files">' + mcp.map((x) => "<li>" + window.md.esc(x) + "</li>").join("") + "</ul>";
+      }
       const tl = lastIde.tools || [];
       if (tl.length) h += kv("Tools available", tl.length);
 
