@@ -401,7 +401,8 @@
     showTop(h);
     els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => {
       if (o.dataset.id === "__custom") { renderCustomModel(); return; }
-      if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); renderModel(); }
+      if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); }
+      closeTop();
     }));
     const sl = els.popover.querySelector("#effslider");
     if (sl) sl.addEventListener("input", () => {
@@ -434,7 +435,7 @@
       // gating (effort range, Auto-mode visibility) applies the same either way.
       for (const k in MODEL_WIRE) if (MODEL_WIRE[k] === v) { v = k; break; }
       if (v !== cur.model) { cur.model = v; post("setModel", { model: v }); applyEffortsForModel(); showModelDivider(v); }
-      renderModel();
+      closeTop();
     });
   }
   function renderUsage() {
@@ -609,7 +610,7 @@
     });
     h += '<div class="effort-row"><div class="elabel">Show thinking <small>(stream reasoning)</small></div><button class="mini-toggle' + (thinkingVisible ? " on" : "") + '" id="thinkToggle">' + (thinkingVisible ? "On" : "Off") + '</button></div>';
     showC(h);
-    els.cpop.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { cur.mode = o.dataset.id; post("setPermissionMode", { mode: cur.mode }); updateModeLabel(); renderMode(); }));
+    els.cpop.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { cur.mode = o.dataset.id; post("setPermissionMode", { mode: cur.mode }); updateModeLabel(); closeC(); }));
     const tt = els.cpop.querySelector("#thinkToggle");
     if (tt) tt.addEventListener("click", () => { thinkingVisible = !thinkingVisible; post("setShowThinking", { on: thinkingVisible }); applyThinkingVisibility(); renderMode(); });
   }
