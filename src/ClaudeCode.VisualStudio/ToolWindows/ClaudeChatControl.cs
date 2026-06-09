@@ -135,6 +135,9 @@ namespace ClaudeCode.VisualStudio
                 case "getUsage":
                     FetchAndSendAccountData();
                     break;
+                case "getMcp":
+                    SendMcp();
+                    break;
                 case "pickImage":
                     PickImage();
                     break;
@@ -228,6 +231,33 @@ namespace ClaudeCode.VisualStudio
             }).FireAndForget();
         }
 
+        // Runs `claude mcp list` out-of-band so the /mcp screen can show configured servers
+        // (with live health) even before the first message starts a chat session.
+        private void SendMcp()
+        {
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    if (_session == null)
+                    {
+                        try { var d = await GetWorkingDirectoryAsync(); if (!string.IsNullOrEmpty(d)) _cwd = d; }
+                        catch { }
+                    }
+                    var servers = await McpService.ListAsync(_cwd);
+                    var list = new List<object>();
+                    foreach (var s in servers)
+                        list.Add(new { name = s.Name, detail = s.Detail, status = s.Status, ok = s.Ok });
+                    _host.PostMessage("mcpList", new { servers = list });
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("SendMcp: " + ex.Message);
+                    _host.PostMessage("mcpList", new { servers = new List<object>(), error = ex.Message });
+                }
+            });
+        }
+
         // Effort levels available per model. Opus exposes the full extended-thinking
         // range plus Ultracode workflows; Sonnet/Haiku expose progressively fewer.
         private static object BuildEffortsByModel()
@@ -256,7 +286,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.17",
+                version = "0.2.18",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,

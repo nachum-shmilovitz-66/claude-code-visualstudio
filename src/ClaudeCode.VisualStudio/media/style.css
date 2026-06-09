@@ -160,6 +160,17 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .brk .pc { text-align: right; color: var(--fg-dim); width: 48px; }
 .files { margin: 4px 0 0; padding-left: 16px; } .files li { padding: 1px 0; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; }
 
+/* MCP servers (/mcp) */
+.mcp-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
+.mcp-item:first-of-type { border-top: none; }
+.mcp-body { flex: 1; min-width: 0; }
+.mcp-name { font-size: 12px; }
+.mcp-detail { color: var(--fg-dim); font-size: 11px; font-family: "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+.mcp-status { font-size: 11px; white-space: nowrap; color: var(--fg-dim); }
+.mcp-status.ok { color: #3fb950; } .mcp-status.bad { color: #e5534b; } .mcp-status.warn { color: #cc7a3b; }
+.mcp-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; background: var(--fg-dim); }
+.mcp-dot.ok { background: #3fb950; } .mcp-dot.bad { background: #e5534b; } .mcp-dot.warn { background: #cc7a3b; }
+
 /* usage bars */
 .uitem { margin: 10px 0; }
 .utitle { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
@@ -194,9 +205,9 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 
 /* composer popover (bottom-anchored): + menu, / palette, mode */
 .cpop { position: absolute; bottom: 70px; left: 8px; right: 8px; max-height: 50%; overflow-y: auto; z-index: 60; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 -6px 28px rgba(0,0,0,.5); padding: 6px; font-size: 12px; }
-.menu-item { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; background: transparent; color: var(--fg); border: none; border-radius: 6px; padding: 8px; cursor: pointer; font-size: 12px; }
+.menu-item { display: flex; gap: 4px; align-items: center; width: 100%; text-align: left; background: transparent; color: var(--fg); border: none; border-radius: 6px; padding: 8px; cursor: pointer; font-size: 12px; }
 .menu-item:hover, .menu-item.sel { background: var(--bg-input); }
-.menu-item .mi-icon { width: 16px; text-align: center; color: var(--fg-dim); }
+.menu-item .mi-icon { width: auto; text-align: center; color: var(--fg-dim); }
 .menu-item .mi-desc { color: var(--fg-dim); font-size: 11px; }
 .palette-input { width: 100%; background: var(--bg-input); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 4px; font-family: inherit; font-size: 13px; }
 .cpop .sec { padding: 0 4px; }

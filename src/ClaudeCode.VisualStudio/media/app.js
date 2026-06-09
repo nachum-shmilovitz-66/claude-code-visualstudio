@@ -6,7 +6,7 @@
   const els = {
     messages: $("messages"), input: $("input"),
     sendBtn: $("sendBtn"), stopBtn: $("stopBtn"),
-    modelBtn: $("modelBtn"), contextBtn: $("contextBtn"), usageBtn: $("usageBtn"), compactBtn: $("compactBtn"),
+    modelBtn: $("modelBtn"), contextBtn: $("contextBtn"), usageBtn: $("usageBtn"),
     plusBtn: $("plusBtn"), slashBtn: $("slashBtn"), ringBtn: $("ringBtn"), ringFg: $("ringFg"),
     modeBtn: $("modeBtn"), modeLabel: $("modeLabel"),
     statusText: $("statusText"), usage: $("usage"), attachments: $("attachments"),
@@ -209,6 +209,7 @@
       endTurn(); scrollDown();
     },
     accountData: (p) => { acct = p; if (topOpen === "usage") renderUsage(); },
+    mcpList: (p) => { lastMcp = p.servers || []; if (topOpen === "mcp") renderMcp(); },
     compacted: (p) => { removeThinking(); endTurn(); const n = document.createElement("div"); n.className = "compacted-divider"; n.innerHTML = '<span>Compacted</span>'; els.messages.appendChild(n); ctx.used = 0; ctx.baseline = 0; updateRing(); scrollDown(); },
     attachImage: (p) => { attachments.push({ mediaType: p.mediaType, data: p.data, name: p.name }); renderAttachments(); },
     insertText: (p) => { els.input.value += (els.input.value && !els.input.value.endsWith(" ") ? " " : "") + (p.text || ""); els.input.focus(); autoGrow(); },
@@ -348,7 +349,6 @@
   els.modelBtn.addEventListener("click", () => toggleTop("model"));
   els.contextBtn.addEventListener("click", () => toggleTop("context"));
   els.usageBtn.addEventListener("click", () => toggleTop("usage"));
-  els.compactBtn.addEventListener("click", () => { closeAll(); post("compact"); showThinking("Compacting"); });
   els.plusBtn.addEventListener("click", () => toggleC("plus"));
   els.slashBtn.addEventListener("click", () => toggleC("slash"));
   els.modeBtn.addEventListener("click", () => toggleC("mode"));
@@ -363,7 +363,7 @@
   function resetTotals() { totals.costUsd = 0; totals.inputTokens = 0; totals.outputTokens = 0; totals.cacheReadTokens = 0; totals.cacheCreationTokens = 0; totals.turns = 0; els.usage.textContent = ""; }
   function activeTop() { [["model", els.modelBtn], ["context", els.contextBtn], ["usage", els.usageBtn]].forEach(([k, b]) => b.classList.toggle("active", topOpen === k)); }
   function closeTop() { topOpen = null; els.popover.classList.add("hidden"); els.popover.innerHTML = ""; activeTop(); }
-  function openTop(which) { closeC(); topOpen = which; activeTop(); if (which === "model") renderModel(); else if (which === "context") { post("getContext"); renderContext(); } else if (which === "usage") { post("getUsage"); renderUsage(); } }
+  function openTop(which) { closeC(); topOpen = which; activeTop(); if (which === "model") renderModel(); else if (which === "context") { post("getContext"); renderContext(); } else if (which === "usage") { post("getUsage"); renderUsage(); } else if (which === "mcp") { lastMcp = null; post("getMcp"); renderMcp(); } }
   function toggleTop(w) { if (topOpen === w) closeTop(); else openTop(w); }
   function showTop(html) { els.popover.innerHTML = html; els.popover.classList.remove("hidden"); const x = els.popover.querySelector(".close-x"); if (x) x.addEventListener("click", closeTop); }
 
@@ -372,8 +372,18 @@
     models.forEach((m) => {
       h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
+    const ei = Math.max(0, efforts.findIndex((x) => x.id === cur.effort));
+    const curName = (efforts[ei] || {}).name || "Off";
+    h += '<div class="effort-row"><div class="elabel">' + DUMBBELL + ' Effort <small id="effdesc">(' + window.md.esc(curName + " — " + effortDesc(cur.effort)) + ')</small></div><input type="range" class="effort-slider" id="effslider" min="0" max="' + (efforts.length - 1) + '" value="' + ei + '" /></div>';
     showTop(h);
-    els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); } closeTop(); }));
+    els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); renderModel(); } }));
+    const sl = els.popover.querySelector("#effslider");
+    if (sl) sl.addEventListener("input", () => {
+      const e = efforts[+sl.value] || efforts[0];
+      cur.effort = e.id; post("setEffort", { effort: cur.effort });
+      const dd = els.popover.querySelector("#effdesc");
+      if (dd) dd.textContent = "(" + e.name + " — " + effortDesc(e.id) + ")";
+    });
   }
   function renderUsage() {
     let h = '<h3>Account &amp; Usage <button class="close-x">×</button></h3>';
@@ -423,6 +433,28 @@
   }
   let lastIde = null;
   function mergeContextIde(p) { lastIde = p; if (topOpen === "context") renderContext(); }
+  // /mcp screen: list configured MCP servers with live health (from `claude mcp list`).
+  let lastMcp = null;
+  function renderMcp() {
+    let h = '<h3>MCP servers <button class="close-x">×</button></h3>';
+    if (lastMcp == null) {
+      h += '<div class="note" style="padding:8px 0">Checking MCP server health…</div>';
+    } else if (!lastMcp.length) {
+      h += '<div class="note" style="padding:8px 0">No MCP servers configured.</div>';
+      h += '<div class="note">Add servers in a <span class="cmd-name">.mcp.json</span> at the project root (or run <span class="cmd-name">claude mcp add</span>), then reopen.</div>';
+    } else {
+      const ok = lastMcp.filter((s) => s.ok).length;
+      h += '<div class="sec">' + lastMcp.length + ' server' + (lastMcp.length === 1 ? '' : 's') + ' · ' + ok + ' connected</div>';
+      lastMcp.forEach((s) => {
+        const cls = s.ok ? "ok" : (/auth/i.test(s.status || "") ? "warn" : "bad");
+        h += '<div class="mcp-item"><span class="mcp-dot ' + cls + '"></span>'
+          + '<div class="mcp-body"><div class="mcp-name">' + window.md.esc(s.name) + '</div>'
+          + '<div class="mcp-detail">' + window.md.esc(s.detail || "") + '</div></div>'
+          + '<div class="mcp-status ' + cls + '">' + window.md.esc(s.status || "") + '</div></div>';
+      });
+    }
+    showTop(h);
+  }
   function renderContext() {
     const used = ctx.used, win = ctx.window || 200000, pct = Math.round((used / win) * 100);
     const sys = ctx.system || 0, msgs = Math.max(0, used - sys), free = Math.max(0, win - used);
@@ -497,19 +529,9 @@
     visibleModes().forEach((m) => {
       h += '<div class="opt' + (m.id === cur.mode ? " sel" : "") + '" data-id="' + m.id + '"><div class="oicon">' + (m.icon || "") + '</div><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.mode ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
-    const ei = Math.max(0, efforts.findIndex((x) => x.id === cur.effort));
-    const curName = (efforts[ei] || {}).name || "Off";
-    h += '<div class="effort-row"><div class="elabel">' + DUMBBELL + ' Effort <small id="effdesc">(' + window.md.esc(curName + " — " + effortDesc(cur.effort)) + ')</small></div><input type="range" class="effort-slider" id="effslider" min="0" max="' + (efforts.length - 1) + '" value="' + ei + '" /></div>';
     h += '<div class="effort-row"><div class="elabel">Show thinking <small>(stream reasoning)</small></div><button class="mini-toggle' + (thinkingVisible ? " on" : "") + '" id="thinkToggle">' + (thinkingVisible ? "On" : "Off") + '</button></div>';
     showC(h);
     els.cpop.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { cur.mode = o.dataset.id; post("setPermissionMode", { mode: cur.mode }); updateModeLabel(); renderMode(); }));
-    const sl = els.cpop.querySelector("#effslider");
-    if (sl) sl.addEventListener("input", () => {
-      const e = efforts[+sl.value] || efforts[0];
-      cur.effort = e.id; post("setEffort", { effort: cur.effort });
-      const dd = els.cpop.querySelector("#effdesc");
-      if (dd) dd.textContent = "(" + e.name + " — " + effortDesc(e.id) + ")";
-    });
     const tt = els.cpop.querySelector("#thinkToggle");
     if (tt) tt.addEventListener("click", () => { thinkingVisible = !thinkingVisible; post("setShowThinking", { on: thinkingVisible }); applyThinkingVisibility(); renderMode(); });
   }
@@ -555,6 +577,7 @@
       { name: "context", desc: "Show context window usage", run: () => openTop("context") },
       { name: "usage", desc: "Show session usage & cost", run: () => openTop("usage") },
       { name: "model", desc: "Select model", run: () => openTop("model") },
+      { name: "mcp", desc: "MCP servers", run: () => openTop("mcp") },
       { name: "compact", desc: "Compact the conversation", run: () => { post("compact"); showThinking("Compacting"); } },
       { name: "clear", desc: "Clear the chat", run: () => handlers.clear() },
       { name: "new", desc: "Start a new session", run: () => { resetTotals(); post("newSession"); } },
