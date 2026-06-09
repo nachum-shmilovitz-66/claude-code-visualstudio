@@ -170,6 +170,16 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .mcp-status.ok { color: #3fb950; } .mcp-status.bad { color: #e5534b; } .mcp-status.warn { color: #cc7a3b; }
 .mcp-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; background: var(--fg-dim); }
 .mcp-dot.ok { background: #3fb950; } .mcp-dot.bad { background: #e5534b; } .mcp-dot.warn { background: #cc7a3b; }
+.mcp-refresh { float: right; margin-right: 8px; cursor: pointer; color: var(--fg-dim); border: none; background: none; font-size: 14px; line-height: 1; }
+.mcp-refresh:hover { color: var(--fg); }
+.mcp-group { margin: 10px 0 2px; color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+.mcp-group + .mcp-item { border-top: none; }
+.mcp-hint { margin-top: 3px; color: var(--fg-dim); font-size: 11px; }
+.mcp-act { background: transparent; color: var(--accent); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; cursor: pointer; }
+.mcp-act:hover { border-color: var(--accent); }
+.mcp-act:disabled { color: var(--fg-dim); cursor: default; }
+.mcp-err { color: #e5534b; }
+.mcp-foot { margin-top: 10px; }
 
 /* usage bars */
 .uitem { margin: 10px 0; }

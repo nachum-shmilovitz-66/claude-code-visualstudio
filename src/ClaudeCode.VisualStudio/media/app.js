@@ -209,7 +209,7 @@
       endTurn(); scrollDown();
     },
     accountData: (p) => { acct = p; if (topOpen === "usage") renderUsage(); },
-    mcpList: (p) => { lastMcp = p.servers || []; if (topOpen === "mcp") renderMcp(); },
+    mcpList: (p) => { lastMcp = p.servers || []; lastMcpError = p.error || null; if (topOpen === "mcp") renderMcp(); },
     compacted: (p) => { removeThinking(); endTurn(); const n = document.createElement("div"); n.className = "compacted-divider"; n.innerHTML = '<span>Compacted</span>'; els.messages.appendChild(n); ctx.used = 0; ctx.baseline = 0; updateRing(); scrollDown(); },
     attachImage: (p) => { attachments.push({ mediaType: p.mediaType, data: p.data, name: p.name }); renderAttachments(); },
     insertText: (p) => { els.input.value += (els.input.value && !els.input.value.endsWith(" ") ? " " : "") + (p.text || ""); els.input.focus(); autoGrow(); },
@@ -433,27 +433,46 @@
   }
   let lastIde = null;
   function mergeContextIde(p) { lastIde = p; if (topOpen === "context") renderContext(); }
-  // /mcp screen: list configured MCP servers with live health (from `claude mcp list`).
-  let lastMcp = null;
+  // /mcp screen: configured MCP servers with live health (from `claude mcp list`),
+  // grouped by scope (Project / User / claude.ai), with refresh + per-server hints/actions.
+  let lastMcp = null, lastMcpError = null;
+  const MCP_GROUP_ORDER = ["Project", "User", "claude.ai"];
   function renderMcp() {
-    let h = '<h3>MCP servers <button class="close-x">×</button></h3>';
+    let h = '<h3>MCP servers <button class="close-x">×</button><button class="mcp-refresh" title="Re-check">↻</button></h3>';
     if (lastMcp == null) {
       h += '<div class="note" style="padding:8px 0">Checking MCP server health…</div>';
-    } else if (!lastMcp.length) {
-      h += '<div class="note" style="padding:8px 0">No MCP servers configured.</div>';
-      h += '<div class="note">Add servers in a <span class="cmd-name">.mcp.json</span> at the project root (or run <span class="cmd-name">claude mcp add</span>), then reopen.</div>';
     } else {
-      const ok = lastMcp.filter((s) => s.ok).length;
-      h += '<div class="sec">' + lastMcp.length + ' server' + (lastMcp.length === 1 ? '' : 's') + ' · ' + ok + ' connected</div>';
-      lastMcp.forEach((s) => {
-        const cls = s.ok ? "ok" : (/auth/i.test(s.status || "") ? "warn" : "bad");
-        h += '<div class="mcp-item"><span class="mcp-dot ' + cls + '"></span>'
-          + '<div class="mcp-body"><div class="mcp-name">' + window.md.esc(s.name) + '</div>'
-          + '<div class="mcp-detail">' + window.md.esc(s.detail || "") + '</div></div>'
-          + '<div class="mcp-status ' + cls + '">' + window.md.esc(s.status || "") + '</div></div>';
-      });
+      if (lastMcpError) h += '<div class="note mcp-err">Could not run <span class="cmd-name">claude mcp list</span>: ' + window.md.esc(lastMcpError) + '</div>';
+      if (!lastMcp.length && !lastMcpError) {
+        h += '<div class="note" style="padding:8px 0">No MCP servers configured.</div>';
+        h += '<div class="note">Add servers in a <span class="cmd-name">.mcp.json</span> at the project root (or run <span class="cmd-name">claude mcp add</span>), then re-check.</div>';
+      } else if (lastMcp.length) {
+        const ok = lastMcp.filter((s) => s.ok).length;
+        h += '<div class="sec">' + lastMcp.length + ' server' + (lastMcp.length === 1 ? '' : 's') + ' · ' + ok + ' connected</div>';
+        const groups = {};
+        lastMcp.forEach((s) => { const g = MCP_GROUP_ORDER.indexOf(s.scope) >= 0 ? s.scope : "User"; (groups[g] = groups[g] || []).push(s); });
+        MCP_GROUP_ORDER.forEach((g) => {
+          const list = groups[g]; if (!list || !list.length) return;
+          h += '<div class="mcp-group">' + window.md.esc(g) + ' (' + list.length + ')</div>';
+          list.forEach((s) => {
+            const cls = s.ok ? "ok" : (/auth/i.test(s.status || "") ? "warn" : "bad");
+            h += '<div class="mcp-item"><span class="mcp-dot ' + cls + '"></span>'
+              + '<div class="mcp-body"><div class="mcp-name">' + window.md.esc(s.name) + '</div>'
+              + '<div class="mcp-detail">' + window.md.esc(s.detail || "") + '</div>';
+            if (s.missingEnv) h += '<div class="mcp-hint">⚠ env var <span class="cmd-name">' + window.md.esc(s.missingEnv) + '</span> not set — set it, then restart VS</div>';
+            if (cls === "warn") h += '<div class="mcp-hint">needs OAuth — <button class="mcp-act" data-act="auth">Authenticate…</button> opens a terminal; run <span class="cmd-name">/mcp</span></div>';
+            h += '</div><div class="mcp-status ' + cls + '">' + window.md.esc(s.status || "") + '</div></div>';
+          });
+        });
+      }
     }
+    h += '<div class="note mcp-foot"><a class="ulink" data-url="https://modelcontextprotocol.io/">Learn more about MCP</a></div>';
     showTop(h);
+    const rb = els.popover.querySelector(".mcp-refresh");
+    if (rb) rb.addEventListener("click", () => { lastMcp = null; lastMcpError = null; post("getMcp"); renderMcp(); });
+    els.popover.querySelectorAll('.mcp-act[data-act="auth"]').forEach((b) => b.addEventListener("click", () => { post("mcpAuth"); b.textContent = "opening terminal…"; b.disabled = true; }));
+    const lm = els.popover.querySelector(".mcp-foot .ulink");
+    if (lm) lm.addEventListener("click", (e) => { e.preventDefault(); post("openExternal", { url: lm.dataset.url }); });
   }
   function renderContext() {
     const used = ctx.used, win = ctx.window || 200000, pct = Math.round((used / win) * 100);

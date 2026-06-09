@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace ClaudeCode.VisualStudio.Services
@@ -12,6 +15,8 @@ namespace ClaudeCode.VisualStudio.Services
         public string Detail;   // url / command + transport, e.g. "https://… (HTTP)"
         public string Status;   // raw status text, e.g. "Connected", "Failed to connect"
         public bool Ok;         // true when the server reports a healthy connection
+        public string Scope;    // "Project" (project .mcp.json) | "User" | "claude.ai"
+        public string MissingEnv; // name of a ${ENV} the project config references that is unset/empty, if any
     }
 
     /// <summary>
@@ -64,12 +69,61 @@ namespace ClaudeCode.VisualStudio.Services
 
                     Parse(sb.ToString(), result);
                 }
+
+                EnrichScopes(result, workingDir);
             }
             catch (Exception ex)
             {
                 Log.Write("McpService.ListAsync: " + ex.Message);
             }
             return result;
+        }
+
+        // Assigns a display scope to each server and, for project-scoped servers, flags the first
+        // ${ENV} placeholder in their .mcp.json config that is currently unset/empty (the usual
+        // cause of a token-based server showing "Failed to connect"). Reads only the project
+        // .mcp.json; user/global servers fall back to the "User" group (claude.ai by name prefix).
+        // We deliberately do NOT shell `claude mcp get` — its output prints the resolved Bearer token.
+        internal static void EnrichScopes(List<McpServerInfo> servers, string workingDir)
+        {
+            foreach (var s in servers)
+                s.Scope = (s.Name != null && s.Name.StartsWith("claude.ai", StringComparison.OrdinalIgnoreCase))
+                    ? "claude.ai" : "User";
+
+            try
+            {
+                if (string.IsNullOrEmpty(workingDir)) return;
+                var path = Path.Combine(workingDir, ".mcp.json");
+                if (!File.Exists(path)) return;
+
+                using (var doc = JsonDocument.Parse(File.ReadAllText(path)))
+                {
+                    if (!doc.RootElement.TryGetProperty("mcpServers", out var ms) || ms.ValueKind != JsonValueKind.Object)
+                        return;
+
+                    foreach (var prop in ms.EnumerateObject())
+                    {
+                        var srv = servers.Find(x => string.Equals(x.Name, prop.Name, StringComparison.Ordinal));
+                        if (srv == null) continue;
+                        srv.Scope = "Project";
+
+                        // Flag the first ${VAR} this server references that is unset/empty in the process env.
+                        foreach (Match m in Regex.Matches(prop.Value.GetRawText(), @"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"))
+                        {
+                            var name = m.Groups[1].Value;
+                            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name)))
+                            {
+                                srv.MissingEnv = name;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.WriteVerbose("McpService.EnrichScopes: " + ex.Message);
+            }
         }
 
         // Parses lines of the form:

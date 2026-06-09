@@ -138,6 +138,9 @@ namespace ClaudeCode.VisualStudio
                 case "getMcp":
                     SendMcp();
                     break;
+                case "mcpAuth":
+                    LaunchMcpAuthTerminal();
+                    break;
                 case "pickImage":
                     PickImage();
                     break;
@@ -247,7 +250,7 @@ namespace ClaudeCode.VisualStudio
                     var servers = await McpService.ListAsync(_cwd);
                     var list = new List<object>();
                     foreach (var s in servers)
-                        list.Add(new { name = s.Name, detail = s.Detail, status = s.Status, ok = s.Ok });
+                        list.Add(new { name = s.Name, detail = s.Detail, status = s.Status, ok = s.Ok, scope = s.Scope, missingEnv = s.MissingEnv });
                     _host.PostMessage("mcpList", new { servers = list });
                 }
                 catch (Exception ex)
@@ -256,6 +259,31 @@ namespace ClaudeCode.VisualStudio
                     _host.PostMessage("mcpList", new { servers = new List<object>(), error = ex.Message });
                 }
             });
+        }
+
+        // Opens an interactive `claude` session in a console at the working dir so the user can run
+        // `/mcp` and complete the OAuth flow for "Needs authentication" servers — the headless CLI
+        // has no non-interactive auth path. Once authenticated, the credentials are shared, so this
+        // extension's sessions pick them up. No webview-controlled input reaches the command line
+        // (the only argument is the located CLI path), so there is no injection surface.
+        private void LaunchMcpAuthTerminal()
+        {
+            try
+            {
+                var cli = ClaudeCliLocator.Locate();
+                string launch = (!string.IsNullOrEmpty(cli.ResolvedPath) && File.Exists(cli.ResolvedPath))
+                    ? "\"" + cli.ResolvedPath + "\""
+                    : "claude";
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/k " + launch,
+                    WorkingDirectory = string.IsNullOrEmpty(_cwd) ? Environment.CurrentDirectory : _cwd,
+                    UseShellExecute = true,
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (Exception ex) { Log.Write("LaunchMcpAuthTerminal: " + ex.Message); }
         }
 
         // Effort levels available per model. Opus exposes the full extended-thinking
@@ -286,7 +314,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.19",
+                version = "0.2.20",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
