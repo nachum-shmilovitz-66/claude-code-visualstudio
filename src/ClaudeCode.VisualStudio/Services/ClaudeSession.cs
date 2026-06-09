@@ -36,6 +36,23 @@ namespace ClaudeCode.VisualStudio.Services
         private readonly object _writeLock = new object();
         private int _controlSeq;
 
+        // ---- Interactive permission prompts (the "Ask before edits" mode) -------------------
+        // In headless stream-json the CLI can't pop a terminal prompt, so we register an in-process
+        // SDK MCP server ("vsperm") via the control-protocol `initialize`, and pass
+        // `--permission-prompt-tool mcp__vsperm__approve`. The CLI then drives that server over
+        // `mcp_message` control requests (JSON-RPC initialize/tools/list/tools/call); a tools/call
+        // of `approve` is surfaced as a permission card and the user's allow/deny becomes the tool's
+        // result. Only enabled for the "default" permission mode — every other mode launches exactly
+        // as before (no initialize, no prompt tool), so existing behavior is untouched.
+        private const string PermServer = "vsperm";
+        private const string PermTool = "approve";
+
+        private bool PermissionPromptEnabled =>
+            string.Equals(_options.PermissionMode, "default", StringComparison.Ordinal);
+
+        private sealed class PendingPerm { public object JsonRpcId; public string ControlRequestId; public string OriginalInputJson; }
+        private readonly Dictionary<string, PendingPerm> _pendingPerms = new Dictionary<string, PendingPerm>(StringComparer.Ordinal);
+
         // Per-message streaming state: content block index -> kind/tool accumulation.
         private readonly Dictionary<int, BlockState> _blocks = new Dictionary<int, BlockState>();
 
@@ -137,6 +154,26 @@ namespace ClaudeCode.VisualStudio.Services
 
             _ = Task.Run(() => ReadLoopAsync(_process.StandardOutput));
             _ = Task.Run(() => ErrorLoopAsync(_process.StandardError));
+
+            if (PermissionPromptEnabled) SendInitialize();
+        }
+
+        // Registers our in-process SDK MCP permission server with the CLI so it can call back for
+        // per-tool approval. Sent once at session start (only in the "Ask before edits" mode).
+        private void SendInitialize()
+        {
+            var id = "req_init_" + Interlocked.Increment(ref _controlSeq).ToString(CultureInfo.InvariantCulture);
+            var msg = new Dictionary<string, object>
+            {
+                ["type"] = "control_request",
+                ["request_id"] = id,
+                ["request"] = new Dictionary<string, object>
+                {
+                    ["subtype"] = "initialize",
+                    ["sdkMcpServers"] = new[] { PermServer },
+                },
+            };
+            WriteLine(JsonSerializer.Serialize(msg));
         }
 
         private string BuildArguments(ClaudeCliLocator.Result cli)
@@ -152,6 +189,11 @@ namespace ClaudeCode.VisualStudio.Services
             if (!string.IsNullOrEmpty(_options.PermissionMode))
             {
                 sb.Append(" --permission-mode ").Append(_options.PermissionMode);
+            }
+            if (PermissionPromptEnabled)
+            {
+                // Route per-tool approval through our in-process SDK MCP server (see field docs).
+                sb.Append(" --permission-prompt-tool mcp__").Append(PermServer).Append("__").Append(PermTool);
             }
             if (!string.IsNullOrEmpty(_options.Model) &&
                 !string.Equals(_options.Model, "default", StringComparison.OrdinalIgnoreCase))
@@ -239,7 +281,15 @@ namespace ClaudeCode.VisualStudio.Services
 
         public void RespondToPermission(string requestId, string behavior, string message)
         {
-            // behavior: "allow" | "deny"
+            // behavior: "allow" | "deny". The card was raised either from an mcp_message tools/call
+            // (our SDK permission server) or, on older paths, a raw can_use_tool control request.
+            if (_pendingPerms.TryGetValue(requestId, out var pending))
+            {
+                _pendingPerms.Remove(requestId);
+                RespondToMcpPermission(pending, behavior, message);
+                return;
+            }
+
             object response = behavior == "deny"
                 ? (object)new { behavior = "deny", message = message ?? "Denied by user" }
                 : new { behavior = "allow" };
@@ -255,6 +305,22 @@ namespace ClaudeCode.VisualStudio.Services
                 },
             };
             WriteLine(JsonSerializer.Serialize(msg));
+        }
+
+        // Returns the allow/deny decision as the result of the `approve` tool call (the contract the
+        // CLI's permission-prompt tool expects): allow echoes back the original input as updatedInput;
+        // deny carries a message. The decision JSON is the tool result's text content.
+        private void RespondToMcpPermission(PendingPerm pending, string behavior, string message)
+        {
+            string decisionJson = behavior == "deny"
+                ? "{\"behavior\":\"deny\",\"message\":" + JsonSerializer.Serialize(message ?? "Denied by user") + "}"
+                : "{\"behavior\":\"allow\",\"updatedInput\":" + (pending.OriginalInputJson ?? "{}") + "}";
+
+            var result = new Dictionary<string, object>
+            {
+                ["content"] = new object[] { new Dictionary<string, object> { ["type"] = "text", ["text"] = decisionJson } },
+            };
+            AckControl(pending.ControlRequestId, McpResult(pending.JsonRpcId, result));
         }
 
         private void WriteLine(string json)
@@ -519,6 +585,12 @@ namespace ClaudeCode.VisualStudio.Services
             var requestId = GetString(root, "request_id");
             if (string.IsNullOrEmpty(requestId)) requestId = GetString(req, "request_id");
 
+            if (subtype == "mcp_message")
+            {
+                HandleMcpMessage(requestId, req);
+                return;
+            }
+
             if (subtype == "can_use_tool" || subtype == "permission")
             {
                 var toolName = GetString(req, "tool_name");
@@ -536,13 +608,103 @@ namespace ClaudeCode.VisualStudio.Services
             else
             {
                 // Acknowledge anything else so the CLI is not left waiting.
-                var ack = new Dictionary<string, object>
-                {
-                    ["type"] = "control_response",
-                    ["response"] = new { subtype = "success", request_id = requestId },
-                };
-                WriteLine(JsonSerializer.Serialize(ack));
+                AckControl(requestId, null);
             }
+        }
+
+        // The CLI drives our in-process "vsperm" SDK MCP server with JSON-RPC requests wrapped in
+        // mcp_message control requests. We answer initialize/tools/list immediately; a tools/call of
+        // `approve` is surfaced as a permission card and answered later via RespondToPermission.
+        private void HandleMcpMessage(string controlRequestId, JsonElement req)
+        {
+            var serverName = GetString(req, "server_name");
+            if (!string.Equals(serverName, PermServer, StringComparison.Ordinal) ||
+                !req.TryGetProperty("message", out var rpc))
+            {
+                AckControl(controlRequestId, null); // unknown server: ack so the CLI is not blocked
+                return;
+            }
+
+            var method = GetString(rpc, "method");
+            object rpcId = rpc.TryGetProperty("id", out var idEl) ? (object)idEl.Clone() : null;
+
+            if (method == "initialize")
+            {
+                AckControl(controlRequestId, McpResult(rpcId, new Dictionary<string, object>
+                {
+                    ["protocolVersion"] = "2025-06-18",
+                    ["capabilities"] = new Dictionary<string, object> { ["tools"] = new Dictionary<string, object>() },
+                    ["serverInfo"] = new Dictionary<string, object> { ["name"] = PermServer, ["version"] = "1.0.0" },
+                }));
+            }
+            else if (method == "tools/list")
+            {
+                var tool = new Dictionary<string, object>
+                {
+                    ["name"] = PermTool,
+                    ["description"] = "Prompt the user to allow or deny a tool call",
+                    ["inputSchema"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new Dictionary<string, object>(),
+                        ["additionalProperties"] = true,
+                    },
+                };
+                AckControl(controlRequestId, McpResult(rpcId, new Dictionary<string, object>
+                {
+                    ["tools"] = new object[] { tool },
+                }));
+            }
+            else if (method == "tools/call")
+            {
+                // Surface the card; the decision is sent later from RespondToPermission.
+                string toolName = null, inputJson = "{}";
+                if (rpc.TryGetProperty("params", out var prm) && prm.TryGetProperty("arguments", out var args))
+                {
+                    toolName = GetString(args, "tool_name");
+                    if (args.TryGetProperty("input", out var inp)) inputJson = inp.GetRawText();
+                }
+                _pendingPerms[controlRequestId] = new PendingPerm
+                {
+                    JsonRpcId = rpcId,
+                    ControlRequestId = controlRequestId,
+                    OriginalInputJson = inputJson,
+                };
+                PermissionRequest?.Invoke(new PermissionRequestInfo
+                {
+                    RequestId = controlRequestId,
+                    ToolName = toolName,
+                    InputJson = inputJson,
+                });
+            }
+            else
+            {
+                // JSON-RPC notification (e.g. notifications/initialized) — no result, just ack.
+                AckControl(controlRequestId, new Dictionary<string, object> { ["mcp_response"] = null });
+            }
+        }
+
+        // Wraps a JSON-RPC response object as the mcp_response payload of a control_response.
+        private static Dictionary<string, object> McpResult(object rpcId, object result)
+        {
+            return new Dictionary<string, object>
+            {
+                ["mcp_response"] = new Dictionary<string, object>
+                {
+                    ["jsonrpc"] = "2.0",
+                    ["id"] = rpcId,
+                    ["result"] = result,
+                },
+            };
+        }
+
+        // Sends a success control_response for the given request, optionally carrying a response body.
+        private void AckControl(string requestId, object response)
+        {
+            var inner = new Dictionary<string, object> { ["subtype"] = "success", ["request_id"] = requestId };
+            if (response != null) inner["response"] = response;
+            var msg = new Dictionary<string, object> { ["type"] = "control_response", ["response"] = inner };
+            WriteLine(JsonSerializer.Serialize(msg));
         }
 
         // ---- JSON helpers ------------------------------------------------

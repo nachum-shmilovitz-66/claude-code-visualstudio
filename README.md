@@ -1,6 +1,6 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v0.2.23<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
+> **Latest release:** <!-- managed:version -->v0.2.24<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2022 and Visual Studio 2026** as a native tool-window chat — the same kind of
@@ -199,13 +199,11 @@ Pick the mode from the **⚡ pill**. Default is **Ask before edits**.
 | Composer options persisted per working directory | ✅ |
 | VS theme matching (light/dark/blue) | ✅ |
 | Works in VS 2022 **and** VS 2026 | ✅ (manifest `[17.0,19.0)`) |
-| In-process **MCP "ide" server** (native `openDiff`, on-demand `getDiagnostics`, `getCurrentSelection` as a tool) | 🚧 protocol handshake validated; not shipped |
-| **Interactive per-tool permission cards** (allow/deny) | 🚧 fully plumbed both directions (card ⇄ `RespondToPermission` ⇄ `HandleControlRequest`), but unreachable: the CLI is launched without a permission-prompt tool, so it never sends `can_use_tool` back |
+| **Interactive per-tool permission cards** (allow/deny) | ✅ in **Ask before edits** mode — an in-process SDK MCP permission server answers the CLI's `--permission-prompt-tool` so each tool call raises an allow/deny card |
 | Native side-by-side diff preview before apply | 🚧 roadmap |
 
-🚧 items are scaffolded (UI + protocol research done — see `ClaudeSession.HandleControlRequest`
-and the permission card UI in `media/app.js`) but intentionally not enabled until verified inside a
-live VS instance, to avoid shipping flaky behavior.
+🚧 items are scaffolded (UI + protocol research done) but intentionally not enabled until verified
+inside a live VS instance, to avoid shipping flaky behavior.
 
 ---
 
