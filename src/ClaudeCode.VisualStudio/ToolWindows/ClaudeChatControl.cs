@@ -138,8 +138,20 @@ namespace ClaudeCode.VisualStudio
                 case "getMcp":
                     SendMcp();
                     break;
+                case "getCommands":
+                    SendCommands();
+                    break;
                 case "mcpAuth":
-                    LaunchMcpAuthTerminal();
+                    LaunchClaudeTerminal();
+                    break;
+                case "openClaudeTerminal":
+                    LaunchClaudeTerminal();
+                    break;
+                case "installCli":
+                    LaunchCliInstall();
+                    break;
+                case "recheckSetup":
+                    SendSetupStatus();
                     break;
                 case "pickImage":
                     PickImage();
@@ -261,12 +273,122 @@ namespace ClaudeCode.VisualStudio
             });
         }
 
-        // Opens an interactive `claude` session in a console at the working dir so the user can run
-        // `/mcp` and complete the OAuth flow for "Needs authentication" servers — the headless CLI
-        // has no non-interactive auth path. Once authenticated, the credentials are shared, so this
-        // extension's sessions pick them up. No webview-controlled input reaches the command line
-        // (the only argument is the located CLI path), so there is no injection surface.
-        private void LaunchMcpAuthTerminal()
+        // Fetches the CLI's full slash-command set out-of-band so the / palette shows the
+        // complete list (built-ins + project .claude/commands) before the first message
+        // starts a session. The live session's system/init refreshes the same "commands"
+        // message later. Stale-while-revalidate: a per-cwd cache is shown instantly, then the
+        // live fetch refreshes both the UI and the cache. On a cold cache the UI shows a
+        // "loading" note for the few seconds the fetch (CLI startup + SessionStart hooks) takes.
+        private void SendCommands()
+        {
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    if (_session == null)
+                    {
+                        try { var d = await GetWorkingDirectoryAsync(); if (!string.IsNullOrEmpty(d)) _cwd = d; }
+                        catch { }
+                    }
+
+                    // 1) Instant fill from cache, or signal "loading" when the cache is cold.
+                    var cached = SlashCommandCache.Load(_cwd);
+                    if (cached != null && cached.Count > 0)
+                        _host.PostMessage("commands", new { commands = cached });
+                    else
+                        _host.PostMessage("commandsLoading", new { on = true });
+
+                    // 2) Live fetch refreshes the UI + cache (then clears the loading note).
+                    try
+                    {
+                        var commands = await SlashCommandService.ListAsync(_cwd);
+                        if (commands.Count > 0)
+                        {
+                            SlashCommandCache.Save(_cwd, commands);
+                            _host.PostMessage("commands", new { commands = commands });
+                        }
+                    }
+                    finally
+                    {
+                        _host.PostMessage("commandsLoading", new { on = false });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("SendCommands: " + ex.Message);
+                }
+            });
+        }
+
+        // First-run readiness: is the claude CLI installed, and is there a stored login? Drives
+        // the onboarding banner so a new user is guided to install / log in instead of hitting a
+        // raw "could not launch" / exit-code error. No network call (token validity is not checked
+        // here — an expired token still reports loggedIn=true; a failed turn then guides re-login).
+        private void SendSetupStatus()
+        {
+            _ = System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    bool cliFound = ClaudeCliLocator.IsInstalled();
+                    bool loggedIn = cliFound && AccountService.HasStoredToken();
+                    // npm presence decides whether the banner offers a one-click "Install CLI"
+                    // (runs npm in a visible terminal) or just a "get Node.js" link.
+                    bool npmFound = !cliFound && IsNpmAvailable();
+                    _host.PostMessage("setup", new { cliFound = cliFound, loggedIn = loggedIn, npmFound = npmFound });
+                }
+                catch (Exception ex) { Log.Write("SendSetupStatus: " + ex.Message); }
+            });
+        }
+
+        // True when an npm launcher (npm.cmd / npm.exe / npm) is on PATH — used to gate the
+        // optional one-click CLI install. We don't try to bootstrap Node itself.
+        private static bool IsNpmAvailable()
+        {
+            try
+            {
+                var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+                foreach (var dir in pathEnv.Split(Path.PathSeparator))
+                {
+                    if (string.IsNullOrWhiteSpace(dir)) continue;
+                    string d;
+                    try { d = dir.Trim(); } catch { continue; }
+                    if (File.Exists(Path.Combine(d, "npm.cmd")) ||
+                        File.Exists(Path.Combine(d, "npm.exe")) ||
+                        File.Exists(Path.Combine(d, "npm")))
+                        return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        // Runs the global CLI install in a VISIBLE terminal so the user sees progress + any errors
+        // and explicitly consents — never a silent background install. The command is a fixed
+        // literal (no webview input), so there is no injection surface. After it finishes the user
+        // clicks "Re-check" (a VS restart may be needed for the new claude to be on VS's PATH).
+        private void LaunchCliInstall()
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/k npm install -g @anthropic-ai/claude-code",
+                    WorkingDirectory = string.IsNullOrEmpty(_cwd) ? Environment.CurrentDirectory : _cwd,
+                    UseShellExecute = true,
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (Exception ex) { Log.Write("LaunchCliInstall: " + ex.Message); }
+        }
+
+        // Opens an interactive `claude` session in a console at the working dir. Used for the
+        // first-run login (`/login`) and for completing MCP OAuth via `/mcp` — the headless CLI
+        // has no non-interactive auth path. Once authenticated, the credentials are shared, so
+        // this extension's sessions pick them up. No webview-controlled input reaches the command
+        // line (the only argument is the located CLI path), so there is no injection surface.
+        private void LaunchClaudeTerminal()
         {
             try
             {
@@ -314,7 +436,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.21",
+                version = "0.2.22",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -342,6 +464,14 @@ namespace ClaudeCode.VisualStudio
                 {
                     var dir = await GetWorkingDirectoryAsync();
                     if (!string.IsNullOrEmpty(dir)) { _cwd = dir; _host.PostMessage("init", new { cwd = _cwd }); }
+
+                    // Populate the / palette with the full CLI command set up front, now that
+                    // cwd is resolved (so project .claude/commands are included) — before the
+                    // user sends a first message and the live session would otherwise be needed.
+                    SendCommands();
+
+                    // First-run readiness (CLI installed? logged in?) drives the onboarding banner.
+                    SendSetupStatus();
 
                     // Restore the prior options (and conversation, if any) for this working dir.
                     if (_record == null)

@@ -1,6 +1,6 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v0.2.21<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
+> **Latest release:** <!-- managed:version -->v0.2.22<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2022 and Visual Studio 2026** as a native tool-window chat — the same kind of
@@ -50,6 +50,11 @@ your MCP servers, hooks, and settings — exactly like running `claude` in a ter
 
 ## Prerequisites
 
+> This extension is a **thin UI over the real Claude Code CLI** — it shells out to *your* locally
+> installed `claude` and inherits its install, login, plan, `CLAUDE.md`, MCP servers, and settings.
+> It **does not bundle or install the CLI**, and it can't sign you in for you. The three things you
+> must provide are the CLI, a login, and a paid plan.
+
 1. **Visual Studio 2022 (17.x)** or **Visual Studio 2026 (18.x)** — Community, Professional, or Enterprise.
 2. **Node.js** and the **Claude Code CLI** installed and on `PATH`:
    ```powershell
@@ -57,8 +62,26 @@ your MCP servers, hooks, and settings — exactly like running `claude` in a ter
    claude --version
    ```
 3. **Logged in once** — run `claude` in any terminal and complete login (`/login`) so the CLI has credentials.
-4. **WebView2 Runtime** — already present on Windows 11 and with Visual Studio; otherwise install the
+4. **A paid Claude plan or API credits** — Claude Code requires a **Pro/Max** subscription or
+   billed **API** access. A **free** Anthropic account can't run it; turns will fail with an
+   auth/entitlement error until the account has Claude Code access.
+5. **WebView2 Runtime** — already present on Windows 11 and with Visual Studio; otherwise install the
    [Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+
+### First run — the panel guides you
+
+When you open **View ▸ Claude Code**, the panel checks readiness and shows a banner if something's
+missing, so you're never left at a raw error:
+
+- **"Claude CLI not found"** → if npm is present, an **Install CLI** button runs
+  `npm install -g @anthropic-ai/claude-code` in a **visible terminal** (consented, never silent);
+  otherwise a **Get Node.js** link. Then click **Re-check** — a VS restart may be needed so the new
+  `claude` is on VS's PATH. (The extension never installs the CLI silently.)
+- **"Not signed in to Claude"** → an **Open terminal to log in** button launches `claude` in a console
+  at your folder; run `/login` there, then click **I've logged in — re-check**. The extension shares
+  the CLI's credentials, so it picks them up immediately.
+- Failed turns that look like auth/credit problems surface the same **log in** action and a note that
+  Claude Code needs a paid plan.
 
 ---
 

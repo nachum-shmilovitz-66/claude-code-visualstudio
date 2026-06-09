@@ -187,7 +187,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .ubar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
 .ufill { height: 100%; background: var(--accent); border-radius: 4px; transition: width .3s; }
 .ureset { color: var(--fg-dim); font-size: 11px; margin-top: 3px; }
-.ulink { color: var(--green); font-size: 12px; text-decoration: none; }
+.ulink { color: var(--green); font-size: 12px; text-decoration: none; cursor: pointer; }
 .ulink:hover { text-decoration: underline; }
 
 /* selectable rows (model/mode popover) */
@@ -222,3 +222,16 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .palette-input { width: 100%; background: var(--bg-input); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 4px; font-family: inherit; font-size: 13px; }
 .cpop .sec { padding: 0 4px; }
 .cmd-name { font-family: "Cascadia Code", Consolas, monospace; }
+
+/* first-run onboarding banner */
+.setup-banner { flex: 0 0 auto; background: var(--bg-alt); border-bottom: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 10px 12px; font-size: 12px; }
+.setup-banner.hidden { display: none; }
+.setup-banner .sb-row { display: flex; gap: 8px; align-items: flex-start; }
+.setup-banner .sb-ico { flex: 0 0 auto; }
+.setup-banner .sb-text { color: var(--fg); line-height: 1.45; }
+.setup-banner code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-family: "Cascadia Code", Consolas, monospace; }
+.setup-banner .sb-actions, .err-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.sb-btn { background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+.sb-btn:hover { background: var(--bg-input); }
+.sb-btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.err-note { margin-top: 6px; color: var(--fg-dim); font-style: italic; }

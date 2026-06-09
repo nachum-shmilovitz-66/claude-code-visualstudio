@@ -9,7 +9,7 @@ namespace ClaudeCode.VisualStudio.Tests
         [TestMethod]
         public void Sanitize_KnownValue_PassesThrough()
         {
-            Assert.AreEqual("opus", InputValidation.SanitizeChoice("opus", InputValidation.AllowedModels, "default"));
+            Assert.AreEqual("sonnet", InputValidation.SanitizeChoice("sonnet", InputValidation.AllowedModels, "default"));
             Assert.AreEqual("plan", InputValidation.SanitizeChoice("plan", InputValidation.AllowedModes, "default"));
             Assert.AreEqual("ultracode", InputValidation.SanitizeChoice("ultracode", InputValidation.AllowedEfforts, "none"));
         }
@@ -41,7 +41,7 @@ namespace ClaudeCode.VisualStudio.Tests
         public void AllowLists_HaveExpectedMembers()
         {
             CollectionAssert.AreEquivalent(
-                new[] { "default", "opus", "sonnet", "haiku" }, InputValidation.AllowedModels);
+                new[] { "default", "sonnet", "haiku" }, InputValidation.AllowedModels);
             CollectionAssert.AreEquivalent(
                 new[] { "default", "acceptEdits", "plan", "bypassPermissions" }, InputValidation.AllowedModes);
             CollectionAssert.AreEquivalent(
