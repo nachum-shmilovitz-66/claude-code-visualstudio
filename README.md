@@ -11,6 +11,9 @@ to your open solution.
 > Status: **working core.** See the [Feature parity](#feature-parity) matrix for exactly
 > what is implemented and what is on the roadmap.
 
+> **Unofficial community project.** Not affiliated with or endorsed by Anthropic. "Claude" and
+> "Claude Code" are products of Anthropic; you need your own Claude Code subscription/credentials.
+
 ---
 
 ## How it works
@@ -61,14 +64,13 @@ your MCP servers, hooks, and settings — exactly like running `claude` in a ter
 
 ## Install
 
-### From the built VSIX
+### From a release VSIX (recommended)
 1. Download the latest `ClaudeCode.VisualStudio.vsix` from the
-   [Releases page](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
-   (or build it yourself — see below).
+   [Releases page](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest).
 2. Double-click the `.vsix` and let the **VSIX Installer** add it to VS 2022 and/or 2026.
    (The VSIX is community-built and unsigned, so VS shows a "publisher not verified" prompt — click **Install**.)
 3. Restart Visual Studio.
-4. Open the panel: **View ▸ Other Windows ▸ Claude Code**.
+4. Open the panel: **View ▸ Claude Code** (also under **View ▸ Other Windows ▸ Claude Code**).
 
 ### Build it yourself
 This repo builds with the MSBuild that ships in VS — the *Visual Studio extension development*
@@ -80,6 +82,7 @@ $msb = "C:\Program Files\Microsoft Visual Studio\18\Professional\MSBuild\Current
 & $msb -t:Restore .\ClaudeCode.sln
 & $msb -t:Build -p:Configuration=Release .\ClaudeCode.sln
 # -> src\ClaudeCode.VisualStudio\bin\Release\ClaudeCode.VisualStudio.vsix
+#    (also copied to dist\ClaudeCode.VisualStudio.vsix by the post-build step)
 ```
 
 Or just open `ClaudeCode.sln` in Visual Studio and press **F5** — that launches the VS *experimental
@@ -89,21 +92,65 @@ instance* with the extension loaded for debugging.
 
 ## Usage
 
-1. Open your solution.
-2. **View ▸ Other Windows ▸ Claude Code**.
-3. Type a request and press **Enter** (Shift+Enter for a newline). Claude works in your solution's folder.
-4. Pick a **model** (default / sonnet / haiku) and a **permission mode** in the toolbar.
-5. Select code in the editor before sending — the selection and active file are sent as context automatically.
-6. Paste an image into the input to attach it.
-7. **Stop** interrupts the current turn; **＋** starts a fresh session.
+1. Open your solution, then **View ▸ Claude Code**.
+2. Type a request and press **Enter** (Shift+Enter for a newline). Claude works in your solution's folder.
+3. Select code in the editor before sending — the selection and active file are attached as context automatically.
+4. Paste an image into the input to attach it; type `@` to reference a file by name.
+5. **Stop** (■) interrupts the current turn; **/new** (or the slash palette) starts a fresh session.
+
+Your composer choices (model, effort, permission mode, "show thinking") are **persisted per working
+directory** and restored next time you open the panel.
+
+### Toolbar & composer
+
+| Control | What it does |
+|---|---|
+| **Model ▾** | Pick the model **and the reasoning effort** for that model (effort slider lives on this screen). |
+| **Context** | Context-window usage breakdown + IDE context (working dir, active file, `CLAUDE.md`, MCP servers once a session is running). |
+| **Usage** | Account, plan, and session cost / token / rate-limit readout. |
+| **＋** | Attach an image, add a file to context, or add a web URL. |
+| **/** | Slash-command palette (see below). |
+| **◌ ring** | Context-remaining ring; click to compact the conversation now. |
+| **⚡ pill** | Permission mode + "show thinking" toggle. |
+| **Send / ■** | Send the turn / interrupt the running turn. |
+
+### Models & effort
+
+| Model | Notes | Effort levels |
+|---|---|---|
+| **Default** | Opus 4.8 with 1M context — most capable for complex work | Off · Low · Medium · High · Extra high · Max · Ultracode |
+| **Sonnet** | Sonnet 4.6 — best for everyday tasks | Off · Low · Medium · High · Max |
+| **Haiku** | Haiku 4.5 — fastest for quick answers | Off · Low · Medium · High |
+
+Effort maps to extended-thinking token budget; **Ultracode** adds multi-agent workflows on top of the
+highest thinking level.
+
+### Slash commands
+
+Type `/` in the composer to open the palette. Built-in commands:
+
+| Command | Action |
+|---|---|
+| `/context` | Show context-window usage |
+| `/usage` | Show session usage & cost |
+| `/model` | Open the model + effort picker |
+| `/mcp` | Show configured MCP servers with live health (`claude mcp list`) |
+| `/compact` | Compact the conversation |
+| `/clear` | Clear the chat |
+| `/new` | Start a new session |
+
+Your CLI slash commands (project/user `commands/`) also appear in the palette and are inserted into the input.
 
 ### Permission modes
+
+Pick the mode from the **⚡ pill**. Default is **Ask before edits**.
+
 | Mode | Behavior |
 |------|----------|
-| `acceptEdits` *(default)* | Auto-applies file edits and safe filesystem commands. |
-| `default` | Runs read-only/safe tools automatically; other tools are skipped if not pre-approved. |
-| `plan` | Read-only planning; Claude proposes without changing files. |
-| `bypassPermissions` | Full autonomy — Claude runs any tool without prompting. Use with care. |
+| **Ask before edits** *(default)* | Claude asks for approval before each edit. |
+| **Edit automatically** (`acceptEdits`) | Claude applies file edits without asking. |
+| **Plan mode** (`plan`) | Read-only planning; Claude proposes a plan before changing files. |
+| **Auto mode** (`bypassPermissions`) | Full autonomy — Claude runs any tool without prompting. Use with care. |
 
 ---
 
@@ -114,21 +161,24 @@ instance* with the extension loaded for debugging.
 | Chat with streaming responses (markdown, code blocks) | ✅ |
 | Full agent loop: Read / Edit / Write / Bash / Grep / Glob etc. | ✅ (real CLI) |
 | Multi-turn conversation in one session | ✅ |
-| Live token streaming + thinking | ✅ |
+| Live token streaming + thinking (toggle) | ✅ |
 | Tool-call cards (collapsible, with results) | ✅ |
 | Cost / token / duration usage readout | ✅ |
 | Uses your login, `CLAUDE.md`, MCP servers, hooks, settings | ✅ (inherited from CLI) |
-| Active-file + selection auto-context | ✅ |
+| Active-file + selection auto-context; `@`-file mentions | ✅ |
 | Opens files Claude edits in the editor | ✅ |
-| Model picker + permission-mode picker | ✅ |
+| Model picker **+ per-model reasoning effort** | ✅ |
+| Permission-mode picker | ✅ |
+| Slash-command palette (built-ins + your CLI commands) | ✅ |
+| MCP server status — `/mcp` screen (live health) + Context panel | ✅ |
 | Image paste | ✅ |
 | Interrupt / new session / `--resume` continuity | ✅ |
+| Composer options persisted per working directory | ✅ |
 | VS theme matching (light/dark/blue) | ✅ |
 | Works in VS 2022 **and** VS 2026 | ✅ (manifest `[17.0,19.0)`) |
 | In-process **MCP "ide" server** (native `openDiff`, on-demand `getDiagnostics`, `getCurrentSelection` as a tool) | 🚧 protocol handshake validated; not shipped |
 | **Interactive per-tool permission cards** (allow/deny) | 🚧 UI present; backend pending stable control-protocol support |
 | Native side-by-side diff preview before apply | 🚧 roadmap |
-| Slash commands / skills picker in-panel | 🚧 roadmap (use natural language; the CLI still runs your hooks/skills) |
 
 🚧 items are scaffolded (UI + protocol research done — see `ClaudeSession.HandleControlRequest`
 and the permission card UI in `media/app.js`) but intentionally not enabled until verified inside a
@@ -140,11 +190,18 @@ live VS instance, to avoid shipping flaky behavior.
 
 ```
 ClaudeCode.sln
+.githooks/
+  pre-commit                          syncs the README version badge to the manifest
+  pre-push                            auto-tags v<version> from the manifest on push
+.github/workflows/
+  release.yml                         on v* tag: builds the VSIX, publishes a Release + asset
+dist/
+  ClaudeCode.VisualStudio.vsix        latest built VSIX (also attached to each Release)
 src/ClaudeCode.VisualStudio/
   ClaudeCode.VisualStudio.csproj      classic VSIX project (net4.8), NuGet-only build
   source.extension.vsixmanifest       targets VS [17.0, 19.0)
   ClaudeCodePackage.cs                 AsyncPackage; registers tool window + commands
-  VSCommandTable.vsct                  View ▸ Other Windows ▸ Claude Code
+  VSCommandTable.vsct                  View ▸ Claude Code (and View ▸ Other Windows)
   Commands/OpenChatCommand.cs
   ToolWindows/
     ClaudeChatToolWindow.cs            tool window pane
@@ -158,8 +215,30 @@ src/ClaudeCode.VisualStudio/
     ClaudeMessages.cs                  DTOs
     IdeContextService.cs               selection / open files / open file (DTE)
     ThemeService.cs                    VS theme -> CSS variables
+    AccountService.cs                  account + usage/limits (OAuth endpoints)
+    McpService.cs                      runs `claude mcp list` for the /mcp screen
+    SessionStore.cs                    persists transcript + composer options per cwd
+    InputValidation.cs                 allow-lists for model/mode/effort from the UI
   media/                               chat UI (index.html, app.js, style.css, markdown.js)
 ```
+
+---
+
+## Releases
+
+Releases are automated:
+
+1. Bump `Version` in `src/ClaudeCode.VisualStudio/source.extension.vsixmanifest`
+   (and the matching strings in `ClaudeCodePackage.cs` / `ClaudeChatControl.cs`).
+2. Commit and `git push`.
+   - The **pre-commit** hook syncs the README version badge.
+   - The **pre-push** hook creates and pushes the annotated tag `v<version>`.
+   - The **`release.yml`** GitHub Action fires on the new tag: it builds the VSIX in CI and
+     publishes a GitHub Release with the `.vsix` attached.
+
+To validate the CI build without cutting a release, run the **release** workflow manually from the
+**Actions** tab (`workflow_dispatch` builds and uploads the VSIX as an artifact, but does not publish
+a Release).
 
 ---
 
@@ -169,9 +248,15 @@ src/ClaudeCode.VisualStudio/
   you've logged in (`claude` then `/login`). The extension uses whatever `claude` resolves to on `PATH`.
   You can override the path with the `CLAUDE_CODE_VS_CLI` environment variable.
 - **Panel is blank** — install/repair the WebView2 Evergreen Runtime.
-- **Tools never run** — switch the permission mode away from `plan`; use `acceptEdits` or `bypassPermissions`.
+- **Tools never run** — switch the permission mode away from `plan`; use *Edit automatically* or *Auto mode*.
 - **Wrong working directory** — Claude runs in your solution's directory; open a solution first
   (otherwise it falls back to your user profile folder).
+- **An MCP server shows "Failed to connect"** — the CLI launches as a child of Visual Studio and inherits
+  VS's environment **as it was when VS started**. If a server's `.mcp.json` uses an env var (e.g. a token),
+  set it, then **fully restart Visual Studio** so the `claude` child picks up the new value. The `/mcp`
+  screen reflects the same status `claude mcp list` reports in a terminal.
+- **Context shows no MCP servers** — that panel only lists servers once a chat session is running (after
+  your first message); use `/mcp` to query them on demand before then.
 
 ---
 
@@ -185,8 +270,7 @@ You must have a valid Claude Code subscription/credentials to use it.
 ## Publishing to the Visual Studio Marketplace
 
 This is an **unofficial, community** extension. The artifacts below publish the built VSIX
-(`dist\ClaudeCode.VisualStudio.vsix`) to the Visual Studio Marketplace with
-`VsixPublisher.exe`.
+(`dist\ClaudeCode.VisualStudio.vsix`) to the Visual Studio Marketplace with `VsixPublisher.exe`.
 
 Files involved:
 
@@ -221,10 +305,10 @@ Files involved:
    **both** `marketplace/overview.md` and `PRIVACY.md` with your support / issue-tracker URL (the repo
    issues page is fine). The token is identical in both files; the publish script fails if either file
    still contains it.
-5. **Commit `PRIVACY.md`.** `overview.md` links to
-   `https://bitbucket.org/nachumsh66/vs-claude-code/src/develop/PRIVACY.md`, so `PRIVACY.md` must be
-   committed at the repo root on the `develop` branch (or wherever that URL points) before publishing,
-   so the link resolves.
+5. **Commit `PRIVACY.md`.** `overview.md` links to a hosted `PRIVACY.md`; point that link at the raw
+   GitHub URL for this repo
+   (`https://raw.githubusercontent.com/nachum-shmilovitz-66/vs-claude-code/develop/PRIVACY.md`) and
+   commit `PRIVACY.md` at the repo root on `develop` so the link resolves.
 6. **Listing images.** `overview.md` references images by **absolute hosted `https` URLs** (the raw
    repo URL for `marketplace/Preview.png`), which need **no** `assetFiles` mapping. If you instead want
    to embed local screenshots, add them under `marketplace/` (e.g. `screenshot-chat.png`), reference
