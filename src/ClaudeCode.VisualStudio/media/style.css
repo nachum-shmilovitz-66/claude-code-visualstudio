@@ -175,9 +175,9 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .mcp-group { margin: 10px 0 2px; color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
 .mcp-group + .mcp-item { border-top: none; }
 .mcp-hint { margin-top: 3px; color: var(--fg-dim); font-size: 11px; }
-.mcp-act { background: transparent; color: var(--accent); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; cursor: pointer; }
-.mcp-act:hover { border-color: var(--accent); }
-.mcp-act:disabled { color: var(--fg-dim); cursor: default; }
+.mcp-authbtn { background: transparent; border: none; padding: 0; font: inherit; font-size: 11px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.mcp-authbtn:hover { filter: brightness(1.2); }
+.mcp-authbtn:disabled { cursor: default; text-decoration: none; filter: none; }
 .mcp-err { color: #e5534b; }
 .mcp-foot { margin-top: 10px; }
 
