@@ -177,7 +177,7 @@ Pick the mode from the **⚡ pill**. Default is **Ask before edits**.
 | VS theme matching (light/dark/blue) | ✅ |
 | Works in VS 2022 **and** VS 2026 | ✅ (manifest `[17.0,19.0)`) |
 | In-process **MCP "ide" server** (native `openDiff`, on-demand `getDiagnostics`, `getCurrentSelection` as a tool) | 🚧 protocol handshake validated; not shipped |
-| **Interactive per-tool permission cards** (allow/deny) | 🚧 UI present; backend pending stable control-protocol support |
+| **Interactive per-tool permission cards** (allow/deny) | 🚧 fully plumbed both directions (card ⇄ `RespondToPermission` ⇄ `HandleControlRequest`), but unreachable: the CLI is launched without a permission-prompt tool, so it never sends `can_use_tool` back |
 | Native side-by-side diff preview before apply | 🚧 roadmap |
 
 🚧 items are scaffolded (UI + protocol research done — see `ClaudeSession.HandleControlRequest`
