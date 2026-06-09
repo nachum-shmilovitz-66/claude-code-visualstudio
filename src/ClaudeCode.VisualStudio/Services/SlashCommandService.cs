@@ -102,13 +102,17 @@ namespace ClaudeCode.VisualStudio.Services
                     if (root.ValueKind != JsonValueKind.Object) return false;
                     if (!root.TryGetProperty("type", out var t) || t.GetString() != "system") return false;
                     if (!root.TryGetProperty("subtype", out var st) || st.GetString() != "init") return false;
-                    if (root.TryGetProperty("slash_commands", out var cmds) && cmds.ValueKind == JsonValueKind.Array)
+                    // init reports commands across "slash_commands" and a "skills" array (a skill is
+                    // invoked as /<name> too). Merge both, deduped, preserving first-seen order.
+                    var seen = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var key in new[] { "slash_commands", "skills" })
                     {
-                        foreach (var c in cmds.EnumerateArray())
-                        {
-                            var name = c.GetString();
-                            if (!string.IsNullOrEmpty(name)) into.Add(name);
-                        }
+                        if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                            foreach (var c in arr.EnumerateArray())
+                            {
+                                var name = c.GetString();
+                                if (!string.IsNullOrEmpty(name) && seen.Add(name)) into.Add(name);
+                            }
                     }
                     return true;
                 }

@@ -350,9 +350,17 @@ namespace ClaudeCode.VisualStudio.Services
             {
                 foreach (var t in tools.EnumerateArray()) info.Tools.Add(t.GetString());
             }
-            if (root.TryGetProperty("slash_commands", out var cmds) && cmds.ValueKind == JsonValueKind.Array)
+            // Commands are split across "slash_commands" and a "skills" array (skills invoke as
+            // /<name> too). Merge both, deduped, so the palette matches what the CLI exposes.
+            var seenCmds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var key in new[] { "slash_commands", "skills" })
             {
-                foreach (var c in cmds.EnumerateArray()) info.SlashCommands.Add(c.GetString());
+                if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    foreach (var c in arr.EnumerateArray())
+                    {
+                        var name = c.GetString();
+                        if (!string.IsNullOrEmpty(name) && seenCmds.Add(name)) info.SlashCommands.Add(name);
+                    }
             }
             if (root.TryGetProperty("mcp_servers", out var mcps) && mcps.ValueKind == JsonValueKind.Array)
             {

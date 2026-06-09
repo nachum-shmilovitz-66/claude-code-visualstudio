@@ -17,6 +17,16 @@ namespace ClaudeCode.VisualStudio.Tests
         }
 
         [TestMethod]
+        public void TryParseInit_MergesSkills_Deduped()
+        {
+            var into = new List<string>();
+            var line = "{\"type\":\"system\",\"subtype\":\"init\",\"slash_commands\":[\"review\",\"init\"],\"skills\":[\"init\",\"deep-research\",\"verify\"]}";
+            Assert.IsTrue(SlashCommandService.TryParseInit(line, into));
+            // slash_commands first, then skills not already present; "init" not duplicated.
+            CollectionAssert.AreEqual(new[] { "review", "init", "deep-research", "verify" }, into);
+        }
+
+        [TestMethod]
         public void TryParseInit_InitWithoutCommands_IsTrueButEmpty()
         {
             var into = new List<string>();
