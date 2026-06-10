@@ -7,6 +7,9 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+// The VS 2019 SDK still ships the legacy Microsoft.VisualStudio.Shell.Task, which makes a
+// bare "Task" ambiguous there.
+using Task = System.Threading.Tasks.Task;
 
 namespace ClaudeCode.VisualStudio.WebView
 {
@@ -45,7 +48,15 @@ namespace ClaudeCode.VisualStudio.WebView
 
             var userData = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+#if VS2017
+                // Per-flavor folder: a WebView2 user-data dir can't be shared by hosts whose
+                // environment options/runtime differ, and VS versions may run side by side.
+                "ClaudeCodeVS", "WebView2-vs15");
+#elif VS2019
+                "ClaudeCodeVS", "WebView2-vs16");
+#else
                 "ClaudeCodeVS", "WebView2");
+#endif
             Directory.CreateDirectory(userData);
 
             var env = await CoreWebView2Environment.CreateAsync(null, userData);

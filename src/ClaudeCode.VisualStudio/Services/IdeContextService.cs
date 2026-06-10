@@ -7,6 +7,9 @@ using Community.VisualStudio.Toolkit;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Shell;
+// The VS 2019 SDK still ships the legacy Microsoft.VisualStudio.Shell.Task, which makes a
+// bare "Task" ambiguous there.
+using Task = System.Threading.Tasks.Task;
 
 namespace ClaudeCode.VisualStudio.Services
 {

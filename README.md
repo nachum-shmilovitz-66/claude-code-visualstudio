@@ -1,6 +1,6 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v0.2.26<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
+> **Latest release:** <!-- managed:version -->v0.2.27<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2022 and Visual Studio 2026** as a native tool-window chat — the same kind of
@@ -88,9 +88,12 @@ missing, so you're never left at a raw error:
 ## Install
 
 ### From a release VSIX (recommended)
-1. Download the latest `ClaudeCode.VisualStudio.vsix` from the
-   [Releases page](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest).
-2. Double-click the `.vsix` and let the **VSIX Installer** add it to VS 2022 and/or 2026.
+1. Download the VSIX for your Visual Studio from the
+   [Releases page](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest):
+   - `ClaudeCode.VisualStudio-vs2022-2026.vsix` — VS 2022 / 2026 (amd64)
+   - `ClaudeCode.VisualStudio-vs2019.vsix` — VS 2019 (16.x, x86)
+   - `ClaudeCode.VisualStudio-vs2017.vsix` — VS 2017 15.7+ (15.x, x86)
+2. Double-click the `.vsix` and let the **VSIX Installer** add it.
    (The VSIX is community-built and unsigned, so VS shows a "publisher not verified" prompt — click **Install**.)
 3. Restart Visual Studio.
 4. Open the panel: **View ▸ Claude Code** (also under **View ▸ Other Windows ▸ Claude Code**).
@@ -104,8 +107,10 @@ workload is **not** required (the `Microsoft.VSSDK.BuildTools` NuGet package sup
 $msb = "C:\Program Files\Microsoft Visual Studio\18\Professional\MSBuild\Current\Bin\MSBuild.exe"  # or your 2022 path
 & $msb -t:Restore .\ClaudeCode.sln
 & $msb -t:Build -p:Configuration=Release .\ClaudeCode.sln
-# -> src\ClaudeCode.VisualStudio\bin\Release\ClaudeCode.VisualStudio.vsix
-#    (also copied to dist\ClaudeCode.VisualStudio.vsix by the post-build step)
+# -> src\ClaudeCode.VisualStudio\bin\Release\ClaudeCode.VisualStudio-vs2022-2026.vsix
+#    src\ClaudeCode.VisualStudio.Vs2019\bin\Release\ClaudeCode.VisualStudio-vs2019.vsix
+#    src\ClaudeCode.VisualStudio.Vs2017\bin\Release\ClaudeCode.VisualStudio-vs2017.vsix
+#    (all also copied to dist\ by the post-build step)
 ```
 
 Or just open `ClaudeCode.sln` in Visual Studio and press **F5** — that launches the VS *experimental
@@ -217,7 +222,9 @@ ClaudeCode.sln
 .github/workflows/
   release.yml                         on v* tag: builds the VSIX, publishes a Release + asset
 dist/
-  ClaudeCode.VisualStudio.vsix        latest built VSIX (also attached to each Release)
+  ClaudeCode.VisualStudio-vs2022-2026.vsix   latest built VSIX for VS 2022/2026
+  ClaudeCode.VisualStudio-vs2019.vsix        latest built VSIX for VS 2019
+  ClaudeCode.VisualStudio-vs2017.vsix        latest built VSIX for VS 2017
 src/ClaudeCode.VisualStudio/
   ClaudeCode.VisualStudio.csproj      classic VSIX project (net4.8), NuGet-only build
   source.extension.vsixmanifest       targets VS [17.0, 19.0)
@@ -241,6 +248,16 @@ src/ClaudeCode.VisualStudio/
     SessionStore.cs                    persists transcript + composer options per cwd
     InputValidation.cs                 allow-lists for model/mode/effort from the UI
   media/                               chat UI (index.html, app.js, style.css, markdown.js)
+src/ClaudeCode.VisualStudio.Vs2019/
+  ClaudeCode.VisualStudio.Vs2019.csproj  VS 2019 flavor: same sources (linked) built against
+                                         SDK 16 / Toolkit.16 / net472; targets VS [16.0, 17.0)
+  source.extension.vsixmanifest          VS 2019 manifest (x86, no ProductArchitecture)
+src/ClaudeCode.VisualStudio.Vs2017/
+  ClaudeCode.VisualStudio.Vs2017.csproj  VS 2017 flavor: same sources (linked) built against
+                                         SDK 15.9 / Toolkit.15 / net472; targets VS [15.0, 16.0)
+  source.extension.vsixmanifest          VS 2017 manifest (x86, no ProductArchitecture)
+  (AssemblyResolver.cs lives in src/ClaudeCode.VisualStudio/ and is shared #if VS2017 || VS2019:
+   it serves the packed System.Text.Json 9 closure that VS 2017/2019 lack in-box)
 ```
 
 ---
@@ -249,7 +266,9 @@ src/ClaudeCode.VisualStudio/
 
 Releases are automated:
 
-1. Bump `Version` in `src/ClaudeCode.VisualStudio/source.extension.vsixmanifest`
+1. Bump `Version` in `src/ClaudeCode.VisualStudio/source.extension.vsixmanifest`,
+   `src/ClaudeCode.VisualStudio.Vs2019/source.extension.vsixmanifest`,
+   and `src/ClaudeCode.VisualStudio.Vs2017/source.extension.vsixmanifest`
    (and the matching strings in `ClaudeCodePackage.cs` / `ClaudeChatControl.cs`).
 2. Commit and `git push`.
    - The **pre-commit** hook syncs the README version badge.

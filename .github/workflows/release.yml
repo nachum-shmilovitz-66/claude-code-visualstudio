@@ -28,25 +28,37 @@ jobs:
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
 
       - name: Restore (PackageReference)
-        run: msbuild src\ClaudeCode.VisualStudio\ClaudeCode.VisualStudio.csproj -t:Restore -p:Configuration=Release
+        run: |
+          msbuild src\ClaudeCode.VisualStudio\ClaudeCode.VisualStudio.csproj -t:Restore -p:Configuration=Release
+          msbuild src\ClaudeCode.VisualStudio.Vs2019\ClaudeCode.VisualStudio.Vs2019.csproj -t:Restore -p:Configuration=Release
+          msbuild src\ClaudeCode.VisualStudio.Vs2017\ClaudeCode.VisualStudio.Vs2017.csproj -t:Restore -p:Configuration=Release
 
-      - name: Build Release (produces dist\ClaudeCode.VisualStudio.vsix)
+      - name: Build Release (produces dist\ClaudeCode.VisualStudio-vs2022-2026.vsix)
         run: msbuild src\ClaudeCode.VisualStudio\ClaudeCode.VisualStudio.csproj -t:Build -p:Configuration=Release
 
-      - name: Upload VSIX as a workflow artifact
+      - name: Build Release VS2019 (produces dist\ClaudeCode.VisualStudio-vs2019.vsix)
+        run: msbuild src\ClaudeCode.VisualStudio.Vs2019\ClaudeCode.VisualStudio.Vs2019.csproj -t:Build -p:Configuration=Release
+
+      - name: Build Release VS2017 (produces dist\ClaudeCode.VisualStudio-vs2017.vsix)
+        run: msbuild src\ClaudeCode.VisualStudio.Vs2017\ClaudeCode.VisualStudio.Vs2017.csproj -t:Build -p:Configuration=Release
+
+      - name: Upload VSIXs as a workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ClaudeCode.VisualStudio.vsix
-          path: dist/ClaudeCode.VisualStudio.vsix
+          name: ClaudeCode.VisualStudio-vsix
+          path: dist/*.vsix
           if-no-files-found: error
 
       # Only when triggered by a tag push: create/update the Release for that
-      # tag and attach the freshly built .vsix.
-      - name: Publish Release + attach VSIX
+      # tag and attach the freshly built .vsix files.
+      - name: Publish Release + attach VSIXs
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           fail_on_unmatched_files: true
-          files: dist/ClaudeCode.VisualStudio.vsix
+          files: |
+            dist/ClaudeCode.VisualStudio-vs2022-2026.vsix
+            dist/ClaudeCode.VisualStudio-vs2019.vsix
+            dist/ClaudeCode.VisualStudio-vs2017.vsix

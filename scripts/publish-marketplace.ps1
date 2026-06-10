@@ -60,7 +60,7 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot  = Split-Path -Parent $ScriptDir
 
-$VsixPath     = Join-Path $RepoRoot 'dist\ClaudeCode.VisualStudio.vsix'
+$VsixPath     = Join-Path $RepoRoot 'dist\ClaudeCode.VisualStudio-vs2022-2026.vsix'
 $ManifestPath = Join-Path $RepoRoot 'marketplace\publishManifest.json'
 
 Write-Host 'Claude Code for Visual Studio - Marketplace publish (v0.2.15)' -ForegroundColor Cyan

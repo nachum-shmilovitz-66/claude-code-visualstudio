@@ -12,13 +12,22 @@ namespace ClaudeCode.VisualStudio
     /// command that opens it. Loads in the background once the shell is ready.
     /// </summary>
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-    [InstalledProductRegistration("Claude Code", "Agentic coding assistant for Visual Studio.", "0.2.26")]
+    [InstalledProductRegistration("Claude Code", "Agentic coding assistant for Visual Studio.", "0.2.27")]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     // Dock as a tab next to Solution Explorer (its window GUID), instead of a free-floating right pane.
     [ProvideToolWindow(typeof(ClaudeChatToolWindow.Pane), Style = VsDockStyle.Tabbed, Window = "3AE79031-E1BC-11D0-8F78-00A0C9110057")]
     [Guid(PackageGuids.ClaudeCodePackageString)]
     public sealed class ClaudeCodePackage : ToolkitPackage
     {
+#if VS2017 || VS2019
+        // Must be in place before anything touches System.Text.Json; the package type loads
+        // before any of our code runs, so the static ctor is the earliest reliable hook.
+        static ClaudeCodePackage()
+        {
+            AssemblyResolver.Install();
+        }
+#endif
+
         protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
         {
             await this.RegisterCommandsAsync();

@@ -70,6 +70,33 @@ namespace ClaudeCode.VisualStudio
             {
                 await _host.InitializeAsync();
             }
+            catch (Microsoft.Web.WebView2.Core.WebView2RuntimeNotFoundException)
+            {
+                // VS 2022+ installs the WebView2 Runtime; older Windows / VS 2019 machines may
+                // lack it, so point at the Evergreen installer instead of dumping the exception.
+                var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(12) };
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Claude Code needs the Microsoft Edge WebView2 Runtime, which is not installed.",
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                var link = new System.Windows.Documents.Hyperlink(
+                    new System.Windows.Documents.Run("Download the WebView2 Runtime"))
+                {
+                    NavigateUri = new Uri("https://go.microsoft.com/fwlink/p/?LinkId=2124703"),
+                };
+                link.RequestNavigate += (s2, e2) =>
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(e2.Uri.AbsoluteUri) { UseShellExecute = true });
+                panel.Children.Add(new TextBlock(link) { Margin = new Thickness(0, 8, 0, 0) });
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Then reopen this window.",
+                    Margin = new Thickness(0, 8, 0, 0),
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                Content = panel;
+                return;
+            }
             catch (Exception ex)
             {
                 Content = new TextBlock
@@ -437,7 +464,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.26",
+                version = "0.2.27",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
