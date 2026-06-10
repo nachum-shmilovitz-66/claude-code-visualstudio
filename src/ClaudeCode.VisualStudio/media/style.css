@@ -76,8 +76,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 /* Tool cards */
 .tool { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-alt); overflow: hidden; }
 .tool-head { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; user-select: none; }
-.tool-head .tname { font-weight: 600; color: var(--accent); }
-.tool-head .tsummary { color: var(--fg-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-head .tname { font-weight: 600; color: var(--accent); flex: 0 0 auto; white-space: nowrap; }
+.tool-head .tsummary { color: var(--fg-dim); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-head .chev { margin-left: auto; color: var(--fg-dim); transition: transform .15s; }
 .tool.open .chev { transform: rotate(90deg); }
 .tool-body { display: none; border-top: 1px solid var(--border); padding: 8px 10px; }
