@@ -19,6 +19,8 @@
     <CopyBuildOutputToOutputDirectory>true</CopyBuildOutputToOutputDirectory>
     <CopyOutputSymbolsToOutputDirectory>true</CopyOutputSymbolsToOutputDirectory>
     <IncludeCopyLocalReferencesInVSIXContainer>true</IncludeCopyLocalReferencesInVSIXContainer>
+    <!-- VSIX file is named for the VS versions it installs into (the manifest targets [17.0,19.0)). -->
+    <TargetVsixContainerName>ClaudeCode.VisualStudio-vs2022-2026.vsix</TargetVsixContainerName>
     <StartAction>Program</StartAction>
     <StartProgram>$(DevEnvDir)devenv.exe</StartProgram>
     <StartArguments>/rootsuffix Exp</StartArguments>
@@ -60,6 +62,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <!-- Body is #if VS2017 || VS2019 only; compiles to nothing in this (VS2022/2026) project. -->
+    <Compile Include="AssemblyResolver.cs" />
     <Compile Include="Vsct\PackageGuids.cs" />
     <Compile Include="Vsct\PackageIds.cs" />
     <Compile Include="ClaudeCodePackage.cs" />
@@ -137,6 +141,6 @@
   <!-- Publish the VSIX to the repo-root dist folder. Release builds only. -->
   <Target Name="CopyVsixToDist" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And Exists('$(TargetVsixContainer)')">
     <Copy SourceFiles="$(TargetVsixContainer)" DestinationFolder="$(MSBuildProjectDirectory)\..\..\dist" SkipUnchangedFiles="false" />
-    <Message Importance="high" Text="Copied VSIX -&gt; $(MSBuildProjectDirectory)\..\..\dist\$(TargetName).vsix" />
+    <Message Importance="high" Text="Copied VSIX -&gt; $(MSBuildProjectDirectory)\..\..\dist\$([System.IO.Path]::GetFileName($(TargetVsixContainer)))" />
   </Target>
 </Project>

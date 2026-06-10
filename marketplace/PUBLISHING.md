@@ -3,7 +3,12 @@
 > Maintainer documentation. Regular users install from [Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest); contributors don't need this.
 
 This is an **unofficial, community** extension. The artifacts below publish the built VSIX
-(`dist\ClaudeCode.VisualStudio.vsix`) to the Visual Studio Marketplace with `VsixPublisher.exe`.
+(`dist\ClaudeCode.VisualStudio-vs2022-2026.vsix`) to the Visual Studio Marketplace with `VsixPublisher.exe`.
+
+> The VS 2019 and VS 2017 flavors (`dist\ClaudeCode.VisualStudio-vs2019.vsix`,
+> `dist\ClaudeCode.VisualStudio-vs2017.vsix`) each have their own VSIX Identity Id, so publishing
+> them to the Marketplace requires a separate listing per flavor (the Marketplace allows one VSIX
+> per listing). Until then they ship via GitHub Releases only.
 
 Files involved:
 

@@ -6,6 +6,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClaudeCode.VisualStudio", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClaudeCode.VisualStudio.Tests", "tests\ClaudeCode.VisualStudio.Tests\ClaudeCode.VisualStudio.Tests.csproj", "{C1753232-6C06-408F-A9B2-EF16EBC3FCAC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClaudeCode.VisualStudio.Vs2019", "src\ClaudeCode.VisualStudio.Vs2019\ClaudeCode.VisualStudio.Vs2019.csproj", "{A41D88E2-7C30-4C8E-B0B5-9D27F3E6A1C4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClaudeCode.VisualStudio.Vs2017", "src\ClaudeCode.VisualStudio.Vs2017\ClaudeCode.VisualStudio.Vs2017.csproj", "{D5F2A1C7-3B84-4E96-A0D1-6C8F2E5B9A37}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,6 +24,14 @@ Global
 		{C1753232-6C06-408F-A9B2-EF16EBC3FCAC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C1753232-6C06-408F-A9B2-EF16EBC3FCAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C1753232-6C06-408F-A9B2-EF16EBC3FCAC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A41D88E2-7C30-4C8E-B0B5-9D27F3E6A1C4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A41D88E2-7C30-4C8E-B0B5-9D27F3E6A1C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A41D88E2-7C30-4C8E-B0B5-9D27F3E6A1C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A41D88E2-7C30-4C8E-B0B5-9D27F3E6A1C4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D5F2A1C7-3B84-4E96-A0D1-6C8F2E5B9A37}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D5F2A1C7-3B84-4E96-A0D1-6C8F2E5B9A37}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D5F2A1C7-3B84-4E96-A0D1-6C8F2E5B9A37}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D5F2A1C7-3B84-4E96-A0D1-6C8F2E5B9A37}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

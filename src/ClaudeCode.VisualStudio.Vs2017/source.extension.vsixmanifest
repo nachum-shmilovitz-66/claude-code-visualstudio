@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="ClaudeCode.VisualStudio.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.27" Language="en-US" Publisher="Nachum Shmilovitz" />
-    <DisplayName>Claude Code for Visual Studio</DisplayName>
-    <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant directly into Visual Studio — the same experience as the VS Code extension, docked next to Solution Explorer.
+    <!-- Distinct Identity Id from the other VSIXs: the marketplace treats each Id as one
+         extension with one VSIX, so the VS 2017 flavor ships as its own listing. -->
+    <Identity Id="ClaudeCode.VisualStudio.Vs2017.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.27" Language="en-US" Publisher="Nachum Shmilovitz" />
+    <DisplayName>Claude Code for Visual Studio 2017</DisplayName>
+    <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant directly into Visual Studio 2017 — the same experience as the VS Code extension, docked next to Solution Explorer.
 
 ━━━ FEATURES ━━━
 
@@ -18,7 +20,7 @@
 ━━━ REQUIREMENTS ━━━
 
   •  Powered by the Claude Code CLI — sign in once by running 'claude' in a terminal
-  •  Visual Studio 2022 or 2026 (amd64)</Description>
+  •  Visual Studio 2017 version 15.7 or later (for .NET Framework 4.7.2) and the WebView2 Runtime</Description>
     <MoreInfo>https://www.anthropic.com/claude-code</MoreInfo>
     <License>Resources\LICENSE.txt</License>
     <Icon>Resources\Icon.png</Icon>
@@ -26,21 +28,17 @@
     <Tags>claude;claude code;ai;assistant;agent;chat;anthropic;copilot;llm;pair programming</Tags>
   </Metadata>
   <Installation>
-    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,19.0)">
-      <ProductArchitecture>amd64</ProductArchitecture>
-    </InstallationTarget>
-    <InstallationTarget Id="Microsoft.VisualStudio.Pro" Version="[17.0,19.0)">
-      <ProductArchitecture>amd64</ProductArchitecture>
-    </InstallationTarget>
-    <InstallationTarget Id="Microsoft.VisualStudio.Enterprise" Version="[17.0,19.0)">
-      <ProductArchitecture>amd64</ProductArchitecture>
-    </InstallationTarget>
+    <!-- No ProductArchitecture element: VS 2017 is x86-only and its setup engine predates
+         that element (introduced for VS 2022). -->
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[15.0,16.0)" />
+    <InstallationTarget Id="Microsoft.VisualStudio.Pro" Version="[15.0,16.0)" />
+    <InstallationTarget Id="Microsoft.VisualStudio.Enterprise" Version="[15.0,16.0)" />
   </Installation>
   <Dependencies>
     <Dependency Id="Microsoft.Framework.NDP" DisplayName="Microsoft .NET Framework" d:Source="Manual" Version="[4.7.2,)" />
   </Dependencies>
   <Prerequisites>
-    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[17.0,19.0)" DisplayName="Visual Studio core editor" />
+    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[15.0,16.0)" DisplayName="Visual Studio core editor" />
   </Prerequisites>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
