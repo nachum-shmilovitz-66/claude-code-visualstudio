@@ -25,6 +25,7 @@
   const ctx = { used: 0, window: 200000, windowReported: false, model: "", baseline: 0, system: 0 };
   let topOpen = null, cOpen = null;
   let updateDismissed = false; // user dismissed the "CLI update available" banner this session
+  let inputHistory = [], histIndex = -1, histDraft = ""; // sent-input history; histIndex === -1 = live draft
   let acct = null;
   let thinkingVisible = true;
 
@@ -309,6 +310,23 @@
     els.input.style.height = Math.min(sh, 200) + "px";
     els.input.style.overflowY = sh > 200 ? "auto" : "hidden";
   }
+  // Sent-input history (Up/Down in the composer). Browses only at the edge lines so normal
+  // multi-line cursor movement still works; setComposer assigns .value directly (no "input"
+  // event), so browsing never re-triggers slash/@ detection or resets histIndex.
+  function caretOnFirstLine() { const v = els.input.value, p = els.input.selectionStart; return v.lastIndexOf("\n", p - 1) === -1; }
+  function caretOnLastLine() { const v = els.input.value, p = els.input.selectionEnd; return v.indexOf("\n", p) === -1; }
+  function setComposer(v) { els.input.value = v; autoGrow(); const n = v.length; try { els.input.setSelectionRange(n, n); } catch (_) {} }
+  function histPrev() {
+    if (!inputHistory.length) return;
+    if (histIndex === -1) { histDraft = els.input.value; histIndex = inputHistory.length - 1; }
+    else if (histIndex > 0) histIndex--;
+    setComposer(inputHistory[histIndex]);
+  }
+  function histNext() {
+    if (histIndex === -1) return;
+    if (histIndex < inputHistory.length - 1) setComposer(inputHistory[++histIndex]);
+    else { histIndex = -1; setComposer(histDraft); }
+  }
   function send() {
     const text = els.input.value.trim();
     if (!text && attachments.length === 0) return;
@@ -317,6 +335,8 @@
     if (text) html += window.md.render(text);
     addMsg("user").innerHTML = html;
     post("send", { text: text, images: attachments });
+    if (text && inputHistory[inputHistory.length - 1] !== text) { inputHistory.push(text); if (inputHistory.length > 100) inputHistory.shift(); }
+    histIndex = -1; histDraft = "";
     els.input.value = ""; attachments = []; renderAttachments(); autoGrow(); showThinking("Working");
   }
   function renderMsgAttachments(list) {
@@ -356,6 +376,7 @@
   }
   els.input.addEventListener("input", () => {
     autoGrow();
+    histIndex = -1; // typing exits history browsing
     if (els.input.value.startsWith("/") && cOpen !== "slash") { openSlash(); return; }
     const m = els.input.value.match(/(?:^|\s)@(\S*)$/);
     if (m) { if (!fileList.length) post("getFiles"); openAt(m[1]); }
@@ -364,6 +385,10 @@
   els.input.addEventListener("keydown", (e) => {
     if (cOpen === "slash") { if (paletteKey(e)) return; }
     if (cOpen === "at") { if (atKey(e)) return; }
+    // Browse previously-sent inputs with Up/Down (shell-style): only when no popover is open,
+    // and only at the edge lines so multi-line cursor movement still works normally.
+    if (!cOpen && e.key === "ArrowUp" && inputHistory.length && caretOnFirstLine()) { e.preventDefault(); histPrev(); return; }
+    if (!cOpen && e.key === "ArrowDown" && histIndex !== -1 && caretOnLastLine()) { e.preventDefault(); histNext(); return; }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   });
   els.input.addEventListener("paste", (e) => {
