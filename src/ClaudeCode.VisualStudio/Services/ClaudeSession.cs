@@ -16,7 +16,7 @@ namespace ClaudeCode.VisualStudio.Services
     public sealed class ClaudeSessionOptions
     {
         public string WorkingDirectory;
-        public string Model;                 // null/"default" -> let CLI choose
+        public string Model;                 // null/"default" -> DefaultModel (Opus 4.8 1M)
         public string PermissionMode = "acceptEdits";
         public string Effort;                // none|low|medium|high -> --max-thinking-tokens
         public string ResumeSessionId;       // for continuing a prior session
@@ -46,6 +46,11 @@ namespace ClaudeCode.VisualStudio.Services
         // as before (no initialize, no prompt tool), so existing behavior is untouched.
         private const string PermServer = "vsperm";
         private const string PermTool = "approve";
+
+        // Wire id behind the picker's "Default (recommended)" entry — mirrors MODEL_WIRE.default
+        // in app.js. Sent explicitly so "Default" always launches Opus 4.8 (1M context) regardless
+        // of whatever the installed CLI would pick on its own.
+        private const string DefaultModel = "claude-opus-4-8[1m]";
 
         private bool PermissionPromptEnabled =>
             string.Equals(_options.PermissionMode, "default", StringComparison.Ordinal);
@@ -195,11 +200,13 @@ namespace ClaudeCode.VisualStudio.Services
                 // Route per-tool approval through our in-process SDK MCP server (see field docs).
                 sb.Append(" --permission-prompt-tool mcp__").Append(PermServer).Append("__").Append(PermTool);
             }
-            if (!string.IsNullOrEmpty(_options.Model) &&
-                !string.Equals(_options.Model, "default", StringComparison.OrdinalIgnoreCase))
-            {
-                sb.Append(" --model ").Append(_options.Model);
-            }
+            // "default"/null resolves to the advertised default model so the launched session
+            // matches the picker label instead of deferring to the CLI's own (possibly older) default.
+            var model = (string.IsNullOrEmpty(_options.Model) ||
+                         string.Equals(_options.Model, "default", StringComparison.OrdinalIgnoreCase))
+                ? DefaultModel
+                : _options.Model;
+            sb.Append(" --model ").Append(model);
             int thinking = ThinkingTokensForEffort(_options.Effort);
             if (thinking > 0)
             {
