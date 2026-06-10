@@ -1,9 +1,9 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v0.2.27<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
+> **Latest release:** <!-- managed:version -->v0.2.28<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
-**Visual Studio 2022 and Visual Studio 2026** as a native tool-window chat — the same kind of
+**Visual Studio 2026, 2022, 2019, and 2017** as a native tool-window chat — the same kind of
 experience as the VS Code extension. It drives the real `claude` CLI under the hood, so you get
 the full agent: streaming responses, tool use, file edits, and multi-turn conversations, scoped
 to your open solution.
@@ -55,7 +55,7 @@ your MCP servers, hooks, and settings — exactly like running `claude` in a ter
 > It **does not bundle or install the CLI**, and it can't sign you in for you. The three things you
 > must provide are the CLI, a login, and a paid plan.
 
-1. **Visual Studio 2022 (17.x)** or **Visual Studio 2026 (18.x)** — Community, Professional, or Enterprise.
+1. **Visual Studio 2026 (18.x)**, **2022 (17.x)**, **2019 (16.x)**, or **2017 (15.7+)** — Community, Professional, or Enterprise.
 2. **Node.js** and the **Claude Code CLI** installed and on `PATH`:
    ```powershell
    npm install -g @anthropic-ai/claude-code
@@ -203,7 +203,7 @@ Pick the mode from the **⚡ pill**. Default is **Ask before edits**.
 | Interrupt / new session / `--resume` continuity | ✅ |
 | Composer options persisted per working directory | ✅ |
 | VS theme matching (light/dark/blue) | ✅ |
-| Works in VS 2022 **and** VS 2026 | ✅ (manifest `[17.0,19.0)`) |
+| Works in VS 2026, 2022, 2019 **and** 2017 | ✅ (2022/2026 manifest `[17.0,19.0)`; separate VS 2019 and VS 2017 VSIX flavors) |
 | **Interactive per-tool permission cards** (allow/deny) | ✅ in **Ask before edits** mode — an in-process SDK MCP permission server answers the CLI's `--permission-prompt-tool` so each tool call raises an allow/deny card |
 | Native side-by-side diff preview before apply | 🚧 roadmap |
 

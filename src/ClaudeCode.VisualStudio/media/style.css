@@ -199,6 +199,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .opt .obody { flex: 1; }
 .opt .oname { font-weight: 600; }
 .opt .odesc { color: var(--fg-dim); font-size: 11px; }
+.opt .oratio { align-self: center; flex: none; color: var(--fg-dim); font-size: 11px; font-variant-numeric: tabular-nums; padding: 1px 6px; border: 1px solid var(--border); border-radius: 999px; white-space: nowrap; }
 .opt .ochk { color: var(--accent); }
 
 /* effort slider */

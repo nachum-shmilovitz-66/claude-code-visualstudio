@@ -388,10 +388,18 @@
   function toggleTop(w) { if (topOpen === w) closeTop(); else openTop(w); }
   function showTop(html) { els.popover.innerHTML = html; els.popover.classList.remove("hidden"); const x = els.popover.querySelector(".close-x"); if (x) x.addEventListener("click", closeTop); }
 
+  // Relative per-token cost badge shown next to each model. The host sends
+  // `ratio` = price vs the cheapest model (Haiku = 1×). Custom models have none.
+  function ratioBadge(ratio) {
+    if (typeof ratio !== "number" || !(ratio > 0)) return "";
+    const r = ratio % 1 === 0 ? String(ratio) : ratio.toFixed(1);
+    return '<div class="oratio" title="Token cost ≈ ' + r + '× the cheapest model (Haiku)">' + r + '×</div>';
+  }
+
   function renderModel() {
     let h = '<h3>Select a model <button class="close-x">×</button></h3>';
     models.forEach((m) => {
-      h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
+      h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + ratioBadge(m.ratio) + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
     const isCustom = !!cur.model && !models.some((m) => m.id === cur.model);
     h += '<div class="opt' + (isCustom ? " sel" : "") + '" data-id="__custom"><div class="obody"><div class="oname">Custom model…</div><div class="odesc">' + (isCustom ? window.md.esc(cur.model) : "Any model id or alias, e.g. claude-fable-5") + '</div></div>' + (isCustom ? '<div class="ochk">✓</div>' : "") + "</div>";
