@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="ClaudeCode.VisualStudio.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.27" Language="en-US" Publisher="Nachum Shmilovitz" />
+    <Identity Id="ClaudeCode.VisualStudio.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.28" Language="en-US" Publisher="Nachum Shmilovitz" />
     <DisplayName>Claude Code for Visual Studio</DisplayName>
     <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant directly into Visual Studio — the same experience as the VS Code extension, docked next to Solution Explorer.
 

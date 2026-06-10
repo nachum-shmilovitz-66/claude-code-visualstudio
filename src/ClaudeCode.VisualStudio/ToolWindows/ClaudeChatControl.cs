@@ -464,18 +464,21 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.27",
+                version = "0.2.28",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
                 permissionMode = _permissionMode,
                 showThinking = _showThinking,
+                // ratio = per-token price relative to Haiku (cheapest). Input and
+                // output prices scale by the same factor, so one number covers both:
+                // Haiku $1/$5, Sonnet $3/$15, Opus 4.8 $5/$25, Fable 5 $10/$50 per MTok.
                 models = new object[]
                 {
-                    new { id = "default", name = "Default (recommended)", desc = "Opus 4.8 with 1M context · Most capable for complex work" },
-                    new { id = "fable", name = "Fable", desc = "Fable 5 · Anthropic's newest, strongest coding model" },
-                    new { id = "sonnet", name = "Sonnet", desc = "Sonnet 4.6 · Best for everyday tasks" },
-                    new { id = "haiku", name = "Haiku", desc = "Haiku 4.5 · Fastest for quick answers" },
+                    new { id = "default", name = "Default (recommended)", desc = "Opus 4.8 with 1M context · Most capable for complex work", ratio = 5.0 },
+                    new { id = "fable", name = "Fable", desc = "Fable 5 · Anthropic's newest, strongest coding model", ratio = 10.0 },
+                    new { id = "sonnet", name = "Sonnet", desc = "Sonnet 4.6 · Best for everyday tasks", ratio = 3.0 },
+                    new { id = "haiku", name = "Haiku", desc = "Haiku 4.5 · Fastest for quick answers", ratio = 1.0 },
                 },
                 modes = new object[]
                 {
