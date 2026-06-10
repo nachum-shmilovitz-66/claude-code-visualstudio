@@ -22,8 +22,9 @@
   let models = [], modes = [], efforts = [], effortsByModel = {};
   let cur = { model: "default", mode: "default", effort: "none" };
   const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, turns: 0 };
-  const ctx = { used: 0, window: 200000, model: "", baseline: 0, system: 0 };
+  const ctx = { used: 0, window: 200000, windowReported: false, model: "", baseline: 0, system: 0 };
   let topOpen = null, cOpen = null;
+  let updateDismissed = false; // user dismissed the "CLI update available" banner this session
   let acct = null;
   let thinkingVisible = true;
 
@@ -184,7 +185,7 @@
       totals.cacheReadTokens += +(p.cacheReadTokens || 0); totals.cacheCreationTokens += +(p.cacheCreationTokens || 0);
       // context window usage
       ctx.used = (+(p.inputTokens || 0)) + (+(p.cacheReadTokens || 0)) + (+(p.cacheCreationTokens || 0));
-      if (p.contextWindow) ctx.window = +p.contextWindow;
+      if (p.contextWindow) { ctx.window = +p.contextWindow; ctx.windowReported = true; }
       if (p.model) ctx.model = p.model;
       if (!ctx.baseline && p.cacheCreationTokens) ctx.baseline = +p.cacheCreationTokens;
       ctx.system = Math.min(ctx.baseline || 0, ctx.used);
@@ -262,6 +263,17 @@
   }
   // Maps a model picker id to its wire name for the "Switched to" divider.
   const MODEL_WIRE = { default: "claude-opus-4-8[1m]", fable: "claude-fable-5", sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5-20251001" };
+  // Quick-picks shown under the Custom-model input — click to fill + apply. Deliberately
+  // excludes models already one-click in the main picker (Default=Opus 4.8 1M, Fable, Sonnet,
+  // Haiku); lists the *other* Opus variants instead. Still open-ended: any valid id works
+  // (dated snapshots, [1m] 1M-context variants, etc). Availability depends on the CLI/account.
+  const MODEL_SUGGESTIONS = [
+    { id: "claude-opus-4-7[1m]", name: "Opus 4.7 · 1M context" },
+    { id: "claude-opus-4-7", name: "Opus 4.7 · standard context" },
+    { id: "claude-opus-4-6[1m]", name: "Opus 4.6 · 1M context" },
+    { id: "claude-opus-4-6", name: "Opus 4.6 · standard context" },
+    { id: "claude-opus-4-8", name: "Opus 4.8 · standard context (200k)" },
+  ];
   function showModelDivider(id) {
     const d = document.createElement("div");
     d.className = "compacted-divider";
@@ -427,24 +439,37 @@
     let h = '<h3>Custom model <button class="close-x">×</button></h3>';
     h += '<input type="text" class="palette-input" id="customModel" placeholder="Model id or alias — Enter to apply, Esc to go back" spellcheck="false" />';
     h += '<div class="note err" id="customModelErr"></div>';
+    h += '<div class="note">Type any model id or alias, or pick a known one:</div>';
+    h += '<div id="customSuggest">';
+    MODEL_SUGGESTIONS.forEach((s) => {
+      h += '<div class="opt" data-id="' + window.md.esc(s.id) + '"><div class="obody"><div class="oname">' + window.md.esc(s.name) + '</div><div class="odesc">' + window.md.esc(s.id) + '</div></div></div>';
+    });
+    h += "</div>";
     showTop(h);
     const inp = els.popover.querySelector("#customModel");
     inp.value = models.some((m) => m.id === cur.model) ? "" : cur.model;
     inp.focus();
-    inp.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { e.stopPropagation(); renderModel(); return; }
-      if (e.key !== "Enter") return;
-      let v = inp.value.trim();
+    // Shared apply path for both Enter and a suggestion click. Returns false (and shows the
+    // error) when the id is malformed so the caller can keep the picker open.
+    const apply = (raw) => {
+      let v = (raw || "").trim();
       if (!MODEL_ID_RE.test(v)) {
         els.popover.querySelector("#customModelErr").textContent = "⚠ Letters, digits, dots, dashes and [] only — no spaces, max 64 chars.";
-        return;
+        return false;
       }
       // A typed wire name of a built-in entry normalizes to its picker id so per-model
       // gating (effort range, Auto-mode visibility) applies the same either way.
       for (const k in MODEL_WIRE) if (MODEL_WIRE[k] === v) { v = k; break; }
       if (v !== cur.model) { cur.model = v; post("setModel", { model: v }); applyEffortsForModel(); showModelDivider(v); }
       closeTop();
+      return true;
+    };
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); renderModel(); return; }
+      if (e.key === "Enter") apply(inp.value);
     });
+    els.popover.querySelectorAll("#customSuggest .opt").forEach((o) =>
+      o.addEventListener("click", () => apply(o.dataset.id)));
   }
   function renderUsage() {
     let h = '<h3>Account &amp; Usage <button class="close-x">×</button></h3>';
@@ -539,11 +564,15 @@
     if (lm) lm.addEventListener("click", (e) => { e.preventDefault(); post("openExternal", { url: lm.dataset.url }); });
   }
   function renderContext() {
-    const used = ctx.used, win = ctx.window || 200000, pct = Math.round((used / win) * 100);
+    // Before the first turn the CLI reports no usage, so fall back to the *selected* model
+    // (resolved to its wire id) and its expected window instead of a bare "default"/200k.
+    const shownModel = ctx.model || own(MODEL_WIRE, cur.model) || cur.model;
+    const is1m = /\[1m\]/i.test(shownModel);
+    const used = ctx.used, win = ctx.windowReported ? (ctx.window || 200000) : (is1m ? 1000000 : 200000), pct = Math.round((used / win) * 100);
     const sys = ctx.system || 0, msgs = Math.max(0, used - sys), free = Math.max(0, win - used);
     const seg = (v, c) => '<span style="width:' + (win ? (v / win * 100) : 0) + '%;background:' + c + '"></span>';
     let h = '<h3>Context usage <button class="close-x">×</button></h3>';
-    h += '<div class="ctxhead">' + window.md.esc(ctx.model || cur.model) + '</div>';
+    h += '<div class="ctxhead">' + window.md.esc(shownModel) + '</div>';
     h += '<div class="ctxsub">' + fmt(used) + " / " + fmt(win) + " tokens (" + pct + "%)</div>";
     h += '<div class="ctxbar">' + seg(sys, "#cc7a3b") + seg(msgs, "#b07cff") + seg(free, "transparent") + "</div>";
     h += '<div class="brk">';
@@ -739,6 +768,9 @@
     } else if (!p.loggedIn) {
       html = '<div class="sb-row"><span class="sb-ico">🔑</span><div class="sb-text"><b>Not signed in to Claude.</b> Login is handled by the CLI. Open a terminal and run <code>/login</code>. Claude Code needs a paid <b>Pro/Max</b> plan or API credits — a free account can\'t run it.</div></div>'
            + '<div class="sb-actions"><button class="sb-btn primary" data-act="login">Open terminal to log in</button><button class="sb-btn" data-act="recheck">I\'ve logged in — re-check</button></div>';
+    } else if (p.cliOutdated && !updateDismissed) {
+      html = '<div class="sb-row"><span class="sb-ico">⬆</span><div class="sb-text"><b>Claude CLI update available.</b> Installed <code>' + window.md.esc(p.cliVersion || "?") + '</code>, latest <code>' + window.md.esc(p.latestCliVersion || "?") + '</code>. Newer models and fixes ship in CLI updates — an older CLI may not offer the latest models (e.g. the picker can list a model your CLI cannot run yet).<br>Click <b>Update CLI</b>, or run <code>claude update</code> in a terminal.</div></div>'
+           + '<div class="sb-actions"><button class="sb-btn primary" data-act="update">Update CLI</button><button class="sb-btn" data-act="recheck">Re-check</button><button class="sb-btn" data-act="dismiss">Dismiss</button></div>';
     } else {
       el.classList.add("hidden"); el.innerHTML = ""; return;
     }
@@ -748,6 +780,8 @@
       const a = b.dataset.act;
       if (a === "login") post("openClaudeTerminal");
       else if (a === "install") { post("installCli"); b.textContent = "installing… (see terminal)"; b.disabled = true; }
+      else if (a === "update") { post("updateCli"); b.textContent = "updating… (see terminal)"; b.disabled = true; }
+      else if (a === "dismiss") { updateDismissed = true; el.classList.add("hidden"); el.innerHTML = ""; }
       else if (a === "recheck") post("recheckSetup");
       else if (a === "node") post("openExternal", { url: "https://nodejs.org/en/download" });
       else if (a === "docs") post("openExternal", { url: "https://docs.claude.com/en/docs/claude-code/setup" });

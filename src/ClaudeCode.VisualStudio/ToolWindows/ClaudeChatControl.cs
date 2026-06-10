@@ -177,6 +177,9 @@ namespace ClaudeCode.VisualStudio
                 case "installCli":
                     LaunchCliInstall();
                     break;
+                case "updateCli":
+                    LaunchCliUpdate();
+                    break;
                 case "recheckSetup":
                     SendSetupStatus();
                     break;
@@ -351,6 +354,10 @@ namespace ClaudeCode.VisualStudio
         // the onboarding banner so a new user is guided to install / log in instead of hitting a
         // raw "could not launch" / exit-code error. No network call (token validity is not checked
         // here — an expired token still reports loggedIn=true; a failed turn then guides re-login).
+        // Cached for the process lifetime: the npm "latest" tag changes rarely, and we re-read the
+        // *installed* version each time, so the outdated warning clears as soon as the user updates.
+        private static string _cachedLatestCli;
+
         private void SendSetupStatus()
         {
             _ = System.Threading.Tasks.Task.Run(() =>
@@ -362,10 +369,112 @@ namespace ClaudeCode.VisualStudio
                     // npm presence decides whether the banner offers a one-click "Install CLI"
                     // (runs npm in a visible terminal) or just a "get Node.js" link.
                     bool npmFound = !cliFound && IsNpmAvailable();
-                    _host.PostMessage("setup", new { cliFound = cliFound, loggedIn = loggedIn, npmFound = npmFound });
+
+                    // Version check is general / future-proof: read the installed version and the
+                    // current npm "latest" at runtime, compare numerically — no hardcoded versions.
+                    // Only run it once the CLI is usable so the not-installed / not-logged-in
+                    // banners still post instantly (this does a process + network call).
+                    string cliVersion = null, latestCliVersion = null;
+                    bool cliOutdated = false;
+                    if (cliFound && loggedIn)
+                    {
+                        cliVersion = GetInstalledCliVersion();
+                        latestCliVersion = GetLatestCliVersion();
+                        cliOutdated = IsCliOutdated(cliVersion, latestCliVersion);
+                    }
+
+                    _host.PostMessage("setup", new
+                    {
+                        cliFound = cliFound,
+                        loggedIn = loggedIn,
+                        npmFound = npmFound,
+                        cliVersion = cliVersion,
+                        latestCliVersion = latestCliVersion,
+                        cliOutdated = cliOutdated,
+                    });
                 }
                 catch (Exception ex) { Log.Write("SendSetupStatus: " + ex.Message); }
             });
+        }
+
+        // Runs `claude --version` and pulls the X.Y.Z it prints (e.g. "2.1.170 (Claude Code)").
+        private static string GetInstalledCliVersion()
+        {
+            try
+            {
+                var cli = ClaudeCliLocator.Locate();
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = cli.FileName,
+                    Arguments = cli.ArgumentPrefix + "--version",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                };
+                using (var p = System.Diagnostics.Process.Start(psi))
+                {
+                    if (p == null) return null;
+                    string outp = p.StandardOutput.ReadToEnd();
+                    if (!p.WaitForExit(8000)) { try { p.Kill(); } catch { } return null; }
+                    var m = System.Text.RegularExpressions.Regex.Match(outp ?? string.Empty, @"\d+\.\d+\.\d+");
+                    return m.Success ? m.Value : null;
+                }
+            }
+            catch (Exception ex) { Log.Write("GetInstalledCliVersion: " + ex.Message); return null; }
+        }
+
+        // Latest published version from the npm registry (the "latest" dist-tag). Cached after the
+        // first success; returns null on any failure (offline etc) so we simply don't warn.
+        private static string GetLatestCliVersion()
+        {
+            if (!string.IsNullOrEmpty(_cachedLatestCli)) return _cachedLatestCli;
+            try
+            {
+                System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12;
+                using (var wc = new System.Net.WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "ClaudeCode-VS-Extension");
+                    string json = wc.DownloadString("https://registry.npmjs.org/@anthropic-ai/claude-code/latest");
+                    using (var doc = JsonDocument.Parse(json))
+                    {
+                        if (doc.RootElement.TryGetProperty("version", out var v))
+                        {
+                            _cachedLatestCli = v.GetString();
+                            return _cachedLatestCli;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { Log.Write("GetLatestCliVersion: " + ex.Message); }
+            return null;
+        }
+
+        // True only when both versions parse and latest > installed (numeric major.minor.patch).
+        private static bool IsCliOutdated(string installed, string latest)
+        {
+            var a = ParseVersion(installed);
+            var b = ParseVersion(latest);
+            if (a == null || b == null) return false;
+            for (int i = 0; i < 3; i++)
+            {
+                if (b[i] > a[i]) return true;
+                if (b[i] < a[i]) return false;
+            }
+            return false;
+        }
+
+        private static int[] ParseVersion(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(v, @"(\d+)\.(\d+)\.(\d+)");
+            if (!m.Success) return null;
+            return new[]
+            {
+                int.Parse(m.Groups[1].Value),
+                int.Parse(m.Groups[2].Value),
+                int.Parse(m.Groups[3].Value),
+            };
         }
 
         // True when an npm launcher (npm.cmd / npm.exe / npm) is on PATH — used to gate the
@@ -408,6 +517,33 @@ namespace ClaudeCode.VisualStudio
                 System.Diagnostics.Process.Start(psi);
             }
             catch (Exception ex) { Log.Write("LaunchCliInstall: " + ex.Message); }
+        }
+
+        // Updates the SAME claude the extension actually runs, via its built-in self-updater
+        // (`claude update`). Using the LOCATED binary is what makes this correct: a hardcoded
+        // `npm i -g` updates the npm copy, but the extension may resolve a different install
+        // (e.g. the native ~/.local/bin build) — updating that one is the only thing that moves
+        // the version the extension uses. Native self-update needs neither npm nor node.
+        // Runs in a VISIBLE terminal (same consent model as install). The target is the located
+        // CLI path (filesystem, never webview input), so there is no injection surface.
+        private void LaunchCliUpdate()
+        {
+            try
+            {
+                var cli = ClaudeCliLocator.Locate();
+                string target = (!string.IsNullOrEmpty(cli.ResolvedPath) && File.Exists(cli.ResolvedPath))
+                    ? cli.ResolvedPath
+                    : "claude";
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/k \"\"" + target + "\" update\"",
+                    WorkingDirectory = string.IsNullOrEmpty(_cwd) ? Environment.CurrentDirectory : _cwd,
+                    UseShellExecute = true,
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (Exception ex) { Log.Write("LaunchCliUpdate: " + ex.Message); }
         }
 
         // Opens an interactive `claude` session in a console at the working dir. Used for the
@@ -464,7 +600,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.29",
+                version = "0.2.33",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
