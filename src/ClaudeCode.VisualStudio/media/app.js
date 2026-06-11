@@ -108,15 +108,37 @@
     try { if (!input) return ""; return input.command || input.file_path || input.path || input.pattern || input.url || (input.prompt ? String(input.prompt).slice(0, 80) : JSON.stringify(input).slice(0, 80)); }
     catch (e) { return ""; }
   }
+  function isEditTool(name) { return name === "Edit" || name === "Write" || name === "MultiEdit"; }
+  // Render an edit's hunks as red (removed) / green (added) lines, capped so a whole-file Write
+  // can't flood the transcript.
+  function diffLines(s, cls, sign) {
+    if (s == null || s === "") return "";
+    const lines = String(s).split("\n");
+    const MAX = 300;
+    let h = lines.slice(0, MAX).map((l) => '<div class="dl ' + cls + '">' + sign + window.md.esc(l) + "</div>").join("");
+    if (lines.length > MAX) h += '<div class="dl meta">… ' + (lines.length - MAX) + " more lines</div>";
+    return h;
+  }
+  function diffHunk(oldS, newS) { return '<div class="diff">' + diffLines(oldS, "del", "- ") + diffLines(newS, "add", "+ ") + "</div>"; }
+  function diffBody(input, name) {
+    let body;
+    if (name === "MultiEdit" && Array.isArray(input.edits)) body = input.edits.map((e) => diffHunk(e.old_string, e.new_string)).join("");
+    else if (name === "Write") body = diffHunk(null, input.content);            // whole-file write → all added; native diff shows true before/after
+    else body = diffHunk(input.old_string, input.new_string);                   // Edit
+    return body + '<button class="open-diff" title="Open the full Before/After diff in Visual Studio">Open diff</button>';
+  }
   function renderToolUse(t) {
     const nd = addNode("tool-node", "pending");
     const c = document.createElement("div"); c.className = "tool";
     const h = document.createElement("div"); h.className = "tool-head";
     h.innerHTML = '<span class="tname">' + window.md.esc(t.name || "tool") + '</span><span class="tsummary">' + window.md.esc(summarize(t.name, t.input)) + '</span><span class="chev">▶</span>';
     const bd = document.createElement("div"); bd.className = "tool-body";
-    bd.innerHTML = "<pre>" + window.md.esc(JSON.stringify(t.input || {}, null, 2)) + "</pre>";
+    const edit = isEditTool(t.name) && t.input && t.input.file_path;
+    if (edit) { bd.innerHTML = diffBody(t.input, t.name); c.classList.add("open"); }  // show edit diffs expanded by default
+    else bd.innerHTML = "<pre>" + window.md.esc(JSON.stringify(t.input || {}, null, 2)) + "</pre>";
     h.addEventListener("click", () => c.classList.toggle("open"));
     c.appendChild(h); c.appendChild(bd); nd.main.appendChild(c);
+    if (edit) { const od = bd.querySelector(".open-diff"); if (od) od.addEventListener("click", (e) => { e.stopPropagation(); post("openDiff", { id: t.id }); }); }
     if (t.id) toolCards.set(t.id, { bd: bd, dot: nd.dot }); scrollDown();
   }
   function renderToolResult(r) {

@@ -227,7 +227,20 @@ namespace ClaudeCode.VisualStudio
                 case "openFile":
                     OpenFileFromWebview(message.Payload);
                     break;
+                case "openDiff":
+                    OpenDiffFromWebview(message.Payload);
+                    break;
             }
+        }
+
+        // The inline diff card's "Open diff" button — open the full native VS Before/After diff for
+        // a specific edit, on demand (looked up by tool-use id from the kept pre-edit snapshot).
+        private void OpenDiffFromWebview(JsonElement payload)
+        {
+            string id = GetStr(payload, "id");
+            if (string.IsNullOrEmpty(id)) return;
+            if (_editedFiles.TryGetValue(id, out var snap))
+                ThreadHelper.JoinableTaskFactory.RunAsync(async () => await ShowEditAsync(snap)).FireAndForget();
         }
 
         // Open a local file (optionally at a line) in the VS editor — used by the selection
@@ -652,7 +665,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.39",
+                version = "0.2.43",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -915,11 +928,11 @@ namespace ClaudeCode.VisualStudio
             s.ToolResult += r =>
             {
                 _host.PostMessage("toolResult", new { id = r.ToolUseId, content = r.Content, isError = r.IsError });
-                if (!r.IsError && r.ToolUseId != null && _editedFiles.TryGetValue(r.ToolUseId, out var snap))
-                {
-                    _editedFiles.Remove(r.ToolUseId);
-                    ThreadHelper.JoinableTaskFactory.RunAsync(async () => await ShowEditAsync(snap)).FireAndForget();
-                }
+                // The chat now renders the diff inline (red/green) per edit. We no longer auto-pop a
+                // native VS diff window for every edit (tab clutter during agentic loops); the pre-edit
+                // snapshot is kept so the card's "Open diff" button can open the full native diff on
+                // demand. Drop the snapshot on a failed edit — there's nothing to compare.
+                if (r.IsError && r.ToolUseId != null) _editedFiles.Remove(r.ToolUseId);
             };
             s.AssistantEnd += () => _host.PostMessage("assistantEnd", new { });
             s.Result += r =>
@@ -990,6 +1003,9 @@ namespace ClaudeCode.VisualStudio
                             var path = fp.GetString();
                             string old = null;
                             try { if (File.Exists(path)) old = File.ReadAllText(path); } catch { }
+                            // Kept for the on-demand "Open diff" button. Bound the memory: a very long
+                            // agentic session could touch many large files.
+                            if (_editedFiles.Count > 200) _editedFiles.Clear();
                             _editedFiles[t.Id] = new EditSnapshot { Path = path, OldText = old };
                         }
                     }

@@ -95,13 +95,18 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .tool.open .chev { transform: rotate(90deg); }
 .tool-body { display: none; border-top: 1px solid var(--border); padding: 8px 10px; }
 .tool.open .tool-body { display: block; }
-.tool-body pre { margin: 0; background: var(--code-bg); padding: 8px; border-radius: 4px; overflow-x: auto; }
+.tool-body pre { margin: 0; background: var(--code-bg); padding: 8px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Diff & permission */
 .diff { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
 .diff .file { padding: 4px 8px; background: var(--bg-input); color: var(--fg-dim); }
 .diff pre { margin: 0; } .diff .ln { display: block; padding: 0 8px; white-space: pre-wrap; }
 .diff .add { background: var(--diff-add); } .diff .del { background: var(--diff-del); }
+.diff .dl { display: block; padding: 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff .dl.meta { color: var(--fg-dim); background: transparent; }
+.tool-body .diff + .diff { margin-top: 6px; }
+.open-diff { margin-top: 8px; background: var(--bg-input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.open-diff:hover { border-color: var(--fg-dim); }
 .perm { border: 1px solid var(--accent); border-radius: 6px; background: var(--bg-alt); padding: 10px; }
 .perm .ptitle { font-weight: 600; margin-bottom: 6px; }
 .perm .pbody pre { background: var(--code-bg); padding: 8px; border-radius: 4px; overflow-x: auto; }
