@@ -32,6 +32,7 @@ namespace ClaudeCode.VisualStudio
         private bool _compacting;
 
         private readonly IdeContextService _ide = new IdeContextService();
+        private readonly DebugContextService _debug = new DebugContextService();
         private readonly ThemeService _theme = new ThemeService();
         private readonly Dictionary<string, EditSnapshot> _editedFiles = new Dictionary<string, EditSnapshot>();
 
@@ -68,7 +69,9 @@ namespace ClaudeCode.VisualStudio
             Loaded -= OnLoaded;
             try
             {
-                await _host.InitializeAsync();
+                // Pass the current VS theme so the WebView paints in-theme from the first frame
+                // (no white flash before app.js applies colors).
+                await _host.InitializeAsync(_theme.GetThemeVariables());
             }
             catch (Microsoft.Web.WebView2.Core.WebView2RuntimeNotFoundException)
             {
@@ -115,6 +118,29 @@ namespace ClaudeCode.VisualStudio
                 if (folders != null && folders.Count > 0) _cwd = folders[0];
             }
             catch { }
+
+            // Listen for debugger break events so the chat can surface a live exception/pause.
+            try
+            {
+                _debug.Break += OnDebugBreak;
+                await _debug.StartAsync();
+            }
+            catch { }
+        }
+
+        // The debugger paused (breakpoint / step / thrown exception). Surface it in the
+        // transcript so the user can ask Claude about the live runtime state.
+        private void OnDebugBreak(DebugBreakInfo info)
+        {
+            if (info == null) return;
+            _host.PostMessage("debugBreak", new
+            {
+                reason = info.Reason,
+                exception = info.Exception,
+                file = info.File,
+                line = info.Line,
+                function = info.Function,
+            });
         }
 
         private void OnMessageReceived(WebMessage message)
@@ -198,7 +224,24 @@ namespace ClaudeCode.VisualStudio
                 case "openExternal":
                     TryOpenExternal(GetStr(message.Payload, "url"));
                     break;
+                case "openFile":
+                    OpenFileFromWebview(message.Payload);
+                    break;
             }
+        }
+
+        // Open a local file (optionally at a line) in the VS editor — used by the selection
+        // chip on a sent message. Only opens an existing file in the editor; never executes.
+        private void OpenFileFromWebview(JsonElement payload)
+        {
+            string path = GetStr(payload, "path");
+            if (string.IsNullOrEmpty(path)) return;
+            int line = GetInt(payload, "line", 0);
+            ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                try { await _ide.OpenFileAsync(path, line > 0 ? (int?)line : null); }
+                catch { }
+            }).FireAndForget();
         }
 
         private void FetchAndSendAccountData()
@@ -230,6 +273,7 @@ namespace ClaudeCode.VisualStudio
                 var sel = await _ide.GetActiveSelectionAsync();
                 var openFiles = await _ide.GetOpenFilesAsync();
                 var folders = await _ide.GetWorkspaceFoldersAsync();
+                var dbg = await _debug.GetDebugStateAsync();
 
                 // Refresh cwd from the open solution if no session has pinned it yet and the user
                 // hasn't chosen one — the tool window often loads before the solution finished
@@ -272,6 +316,14 @@ namespace ClaudeCode.VisualStudio
                     effort = _effort,
                     permissionMode = _permissionMode,
                     sessionId = _session?.SessionId,
+                    dbgActive = dbg?.IsActive ?? false,
+                    dbgMode = dbg?.Mode,
+                    dbgProcess = dbg?.ProcessName,
+                    dbgFunction = dbg?.Function,
+                    dbgFile = dbg?.File,
+                    dbgLine = dbg?.Line ?? 0,
+                    dbgException = dbg?.Exception,
+                    dbgLocals = dbg?.Locals?.Count ?? 0,
                 });
             }).FireAndForget();
         }
@@ -600,7 +652,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.34",
+                version = "0.2.39",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -685,13 +737,27 @@ namespace ClaudeCode.VisualStudio
                     // Best-effort: attach the active file/selection as context (with a timeout
                     // so a slow IDE call can never hold up the message).
                     string prefix = string.Empty;
+                    SelectionContext attachedSel = null;
                     try
                     {
                         var ctx = BuildContextPrefixAsync();
                         if (await System.Threading.Tasks.Task.WhenAny(ctx, System.Threading.Tasks.Task.Delay(2000)) == ctx)
-                            prefix = await ctx ?? string.Empty;
+                        {
+                            var cp = await ctx;
+                            if (cp != null) { prefix = cp.Text ?? string.Empty; attachedSel = cp.Selection; }
+                        }
                     }
                     catch { }
+
+                    // Echo the captured selection so the sent user bubble shows a chip of what
+                    // was attached (mirrors the official VS Code ext's ide_selection marker).
+                    if (attachedSel != null && attachedSel.HasSelection)
+                        _host.PostMessage("sentSelection", new
+                        {
+                            filePath = attachedSel.FilePath,
+                            startLine = attachedSel.StartLine,
+                            endLine = attachedSel.EndLine,
+                        });
 
                     await EnsureWorkingDirectoryAsync();
                     EnsureSession();
@@ -708,17 +774,47 @@ namespace ClaudeCode.VisualStudio
             });
         }
 
-        private async System.Threading.Tasks.Task<string> BuildContextPrefixAsync()
+        private sealed class ContextPrefix { public string Text = string.Empty; public SelectionContext Selection; }
+
+        private async System.Threading.Tasks.Task<ContextPrefix> BuildContextPrefixAsync()
         {
             try
             {
                 var sel = await _ide.GetActiveSelectionAsync();
                 var openFiles = await _ide.GetOpenFilesAsync();
                 var diags = await _ide.GetDiagnosticsAsync(30);
+                var dbg = await _debug.GetDebugStateAsync();
 
                 bool any = false;
                 var sb = new System.Text.StringBuilder();
                 sb.AppendLine("<ide-context>");
+
+                // Live debugger state — only when actually debugging, so it stays silent at
+                // design time. When paused, this carries the current location, exception,
+                // call stack and locals so Claude can reason about the running app.
+                if (dbg != null && dbg.IsActive)
+                {
+                    any = true;
+                    sb.AppendLine("Debugger: " + dbg.Mode + (string.IsNullOrEmpty(dbg.ProcessName) ? "" : " — process " + dbg.ProcessName));
+                    if (dbg.IsPaused)
+                    {
+                        if (!string.IsNullOrEmpty(dbg.Function))
+                            sb.AppendLine("Stopped in: " + dbg.Function + (dbg.Line > 0 ? " (" + (dbg.File ?? "") + ":" + dbg.Line + ")" : ""));
+                        if (!string.IsNullOrEmpty(dbg.Exception))
+                            sb.AppendLine("Exception: " + dbg.Exception);
+                        if (dbg.CallStack != null && dbg.CallStack.Count > 0)
+                        {
+                            sb.AppendLine("Call stack:");
+                            foreach (var f in dbg.CallStack) sb.Append("- ").AppendLine(f);
+                        }
+                        if (dbg.Locals != null && dbg.Locals.Count > 0)
+                        {
+                            sb.AppendLine("Locals:");
+                            foreach (var l in dbg.Locals)
+                                sb.AppendLine("- " + l.Name + " (" + l.Type + ") = " + l.Value);
+                        }
+                    }
+                }
 
                 if (sel != null && !string.IsNullOrEmpty(sel.FilePath))
                 {
@@ -754,9 +850,9 @@ namespace ClaudeCode.VisualStudio
 
                 sb.AppendLine("</ide-context>");
                 sb.AppendLine();
-                return any ? sb.ToString() : string.Empty;
+                return new ContextPrefix { Text = any ? sb.ToString() : string.Empty, Selection = sel };
             }
-            catch { return string.Empty; }
+            catch { return new ContextPrefix(); }
         }
 
         private void EnsureSession()
@@ -1141,6 +1237,10 @@ namespace ClaudeCode.VisualStudio
             }
             return fallback;
         }
+
+        private static int GetInt(JsonElement el, string name, int fallback)
+            => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(name, out var v)
+                && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : fallback;
 
         private void TryOpenExternal(string url)
         {

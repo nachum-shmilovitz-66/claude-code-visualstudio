@@ -116,6 +116,9 @@
     <Compile Include="..\ClaudeCode.VisualStudio\Services\IdeContextService.cs">
       <Link>Services\IdeContextService.cs</Link>
     </Compile>
+    <Compile Include="..\ClaudeCode.VisualStudio\Services\DebugContextService.cs">
+      <Link>Services\DebugContextService.cs</Link>
+    </Compile>
     <Compile Include="..\ClaudeCode.VisualStudio\Services\ThemeService.cs">
       <Link>Services\ThemeService.cs</Link>
     </Compile>
