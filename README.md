@@ -9,7 +9,7 @@ the full agent: streaming responses, tool use, file edits, and multi-turn conver
 to your open solution.
 
 > Status: **working core.** See the [Feature parity](#feature-parity) matrix for exactly
-> what is implemented and what is on the roadmap.
+> what is implemented.
 
 > **Unofficial community project.** Not affiliated with or endorsed by Anthropic. "Claude" and
 > "Claude Code" are products of Anthropic; you need your own Claude Code subscription/credentials.
@@ -205,10 +205,7 @@ Pick the mode from the **⚡ pill**. Default is **Ask before edits**.
 | VS theme matching (light/dark/blue) | ✅ |
 | Works in VS 2026, 2022, 2019 **and** 2017 | ✅ (2022/2026 manifest `[17.0,19.0)`; separate VS 2019 and VS 2017 VSIX flavors) |
 | **Interactive per-tool permission cards** (allow/deny) | ✅ in **Ask before edits** mode — an in-process SDK MCP permission server answers the CLI's `--permission-prompt-tool` so each tool call raises an allow/deny card |
-| Native side-by-side diff preview before apply | 🚧 roadmap |
-
-🚧 items are scaffolded (UI + protocol research done) but intentionally not enabled until verified
-inside a live VS instance, to avoid shipping flaky behavior.
+| **Diff view of edits** | ✅ inline red/green diff card per edit in the chat, plus an "Open diff" button for the full native VS Before/After window |
 
 ---
 
