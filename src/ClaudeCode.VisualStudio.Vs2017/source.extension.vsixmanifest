@@ -3,7 +3,7 @@
   <Metadata>
     <!-- Distinct Identity Id from the other VSIXs: the marketplace treats each Id as one
          extension with one VSIX, so the VS 2017 flavor ships as its own listing. -->
-    <Identity Id="ClaudeCode.VisualStudio.Vs2017.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.34" Language="en-US" Publisher="Nachum Shmilovitz" />
+    <Identity Id="ClaudeCode.VisualStudio.Vs2017.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.39" Language="en-US" Publisher="Nachum Shmilovitz" />
     <DisplayName>Claude Code for Visual Studio 2017</DisplayName>
     <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant directly into Visual Studio 2017 — the same experience as the VS Code extension, docked next to Solution Explorer.
 

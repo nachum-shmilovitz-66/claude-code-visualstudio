@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using Microsoft.VisualStudio.Shell;
@@ -37,7 +40,7 @@ namespace ClaudeCode.VisualStudio.WebView
             _dispatcher = webView.Dispatcher;
         }
 
-        public async Task InitializeAsync()
+        public async Task InitializeAsync(Dictionary<string, string> theme = null)
         {
             if (_initialized)
             {
@@ -45,6 +48,18 @@ namespace ClaudeCode.VisualStudio.WebView
             }
 
             _initialized = true;
+
+            // Kill the white flash: WebView2's control background defaults to white and shows for
+            // the moment between navigation and the first paint of our (themed) HTML. Paint it the
+            // VS tool-window background instead so a dark IDE never flashes white on open.
+            try
+            {
+                if (theme != null && theme.TryGetValue("--bg", out var bgHex) && TryParseHex(bgHex, out var bg))
+                    _webView.DefaultBackgroundColor = bg;
+                else
+                    _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(30, 30, 30);
+            }
+            catch { }
 
             var userData = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -101,6 +116,15 @@ namespace ClaudeCode.VisualStudio.WebView
                 "media");
             core.SetVirtualHostNameToFolderMapping(
                 VirtualHost, mediaPath, CoreWebView2HostResourceAccessKind.Allow);
+
+            // Seed the VS theme into :root BEFORE the page renders, so the very first paint matches
+            // the IDE (no white→dark→theme flash). Runs on document-created, ahead of app.js, which
+            // later refines the same variables on the init message and on live theme switches.
+            if (theme != null && theme.Count > 0)
+            {
+                try { await core.AddScriptToExecuteOnDocumentCreatedAsync(BuildThemeSeedScript(theme)); }
+                catch { }
+            }
 
             // Cache-bust the top-level page so HTML changes always load fresh.
             core.Navigate($"https://{VirtualHost}/index.html?cb={Guid.NewGuid():N}");
@@ -196,5 +220,35 @@ namespace ClaudeCode.VisualStudio.WebView
         }
 
         private static string Head(string s) => s == null ? "" : (s.Length > 80 ? s.Substring(0, 80) : s);
+
+        // Inline script that sets each --var on :root (inline style beats the stylesheet's defaults)
+        // plus an explicit documentElement background, so the page paints in-theme from frame one.
+        private static string BuildThemeSeedScript(Dictionary<string, string> theme)
+        {
+            var sb = new StringBuilder("(function(){try{var r=document.documentElement.style;");
+            foreach (var kv in theme)
+                sb.Append("r.setProperty(").Append(JsStr(kv.Key)).Append(',').Append(JsStr(kv.Value)).Append(");");
+            if (theme.TryGetValue("--bg", out var bg))
+                sb.Append("r.background=").Append(JsStr(bg)).Append(';');
+            sb.Append("}catch(e){}})();");
+            return sb.ToString();
+        }
+
+        private static string JsStr(string s)
+        {
+            return "'" + (s ?? string.Empty).Replace("\\", "\\\\").Replace("'", "\\'") + "'";
+        }
+
+        private static bool TryParseHex(string s, out System.Drawing.Color color)
+        {
+            color = System.Drawing.Color.Empty;
+            if (string.IsNullOrEmpty(s) || s[0] != '#' || s.Length != 7) return false;
+            if (int.TryParse(s.Substring(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v))
+            {
+                color = System.Drawing.Color.FromArgb(255, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+                return true;
+            }
+            return false;
+        }
     }
 }

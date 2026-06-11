@@ -41,7 +41,15 @@
   if (api && api.addEventListener) api.addEventListener("message", onHostMessage);
   window.addEventListener("message", onHostMessage);
 
-  function scrollDown() { els.messages.scrollTop = els.messages.scrollHeight; }
+  // Stick-to-bottom: only auto-scroll when user is already near the bottom.
+  // If user scrolled up to read history, leave scroll position alone.
+  let stickBottom = true;
+  function atBottom() {
+    const m = els.messages;
+    return (m.scrollHeight - m.scrollTop - m.clientHeight) < 40;
+  }
+  els.messages.addEventListener("scroll", function () { stickBottom = atBottom(); });
+  function scrollDown(force) { if (force || stickBottom) els.messages.scrollTop = els.messages.scrollHeight; }
   function addMsg(role) {
     const w = document.createElement("div"); w.className = "msg " + role;
     const b = document.createElement("div"); b.className = "bubble";
@@ -232,7 +240,53 @@
     compacted: (p) => { removeThinking(); endTurn(); const n = document.createElement("div"); n.className = "compacted-divider"; n.innerHTML = '<span>Compacted</span>'; els.messages.appendChild(n); ctx.used = 0; ctx.baseline = 0; updateRing(); scrollDown(); },
     attachImage: (p) => { attachments.push({ mediaType: p.mediaType, data: p.data, name: p.name }); renderAttachments(); },
     insertText: (p) => { els.input.value += (els.input.value && !els.input.value.endsWith(" ") ? " " : "") + (p.text || ""); els.input.focus(); autoGrow(); },
+    sentSelection: (p) => attachSelectionChip(p),
+    debugBreak: (p) => renderDebugBreak(p),
   };
+
+  // The VS debugger paused (breakpoint / step / exception). Drop a banner into the transcript
+  // so the user can ask about the live runtime — the next send auto-attaches locals/stack.
+  function renderDebugBreak(p) {
+    p = p || {};
+    const isExc = p.reason === "Exception" || !!p.exception;
+    const where = p.function
+      ? (p.function + (p.line ? " (" + fileName(p.file) + ":" + p.line + ")" : ""))
+      : (p.file ? fileName(p.file) + (p.line ? ":" + p.line : "") : "");
+    let head = isExc ? "⚠ Exception" : "⏸ Paused";
+    if (p.exception) head += " — " + p.exception;
+    else if (p.reason && p.reason !== "Break") head += " — " + p.reason;
+    const div = document.createElement("div");
+    div.className = "debug-break" + (isExc ? " exc" : "");
+    div.innerHTML = '<div class="db-head">' + window.md.esc(head) + '</div>'
+      + (where ? '<div class="db-where">' + window.md.esc(where) + '</div>' : "")
+      + '<div class="db-actions"><button class="db-btn" data-act="explain">Ask Claude about this</button></div>';
+    div.querySelector('[data-act="explain"]').addEventListener("click", () => {
+      const q = isExc
+        ? "The debugger stopped on an exception. Explain what caused it and how to fix it."
+        : "The debugger is paused here. Explain the current state and what the code is doing.";
+      els.input.value = q; els.input.focus(); autoGrow();
+    });
+    els.messages.appendChild(div); scrollDown();
+  }
+  function fileName(p) { return p ? String(p).split(/[\\/]/).pop() : ""; }
+
+  // Prepend a "selection attached" chip to the most recent user bubble — shows what editor
+  // selection the host captured and sent as context, click to open the file at that line.
+  function attachSelectionChip(p) {
+    if (!p || !p.filePath) return;
+    const bubbles = els.messages.querySelectorAll(".msg.user .bubble");
+    const b = bubbles[bubbles.length - 1];
+    if (!b) return;
+    const name = String(p.filePath).split(/[\\/]/).pop() || p.filePath;
+    const rng = p.startLine === p.endLine ? ("L" + p.startLine) : ("L" + p.startLine + "–" + p.endLine);
+    const wrap = document.createElement("div");
+    wrap.className = "msg-selection";
+    wrap.innerHTML = '<span class="sel-chip" title="' + window.md.esc(p.filePath + " (lines " + p.startLine + "–" + p.endLine + ") — click to open") + '">'
+      + '<span class="sel-ico">⌗</span><span class="sel-name">' + window.md.esc(name) + '</span>'
+      + '<span class="sel-range">' + window.md.esc(rng) + '</span></span>';
+    wrap.querySelector(".sel-chip").addEventListener("click", () => post("openFile", { path: p.filePath, line: p.startLine }));
+    b.insertBefore(wrap, b.firstChild);
+  }
 
   function applyTheme(t) { const r = document.documentElement.style; Object.keys(t).forEach((k) => { if (k.startsWith("--")) r.setProperty(k, t[k]); }); }
   function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
@@ -333,6 +387,7 @@
     endTurn();
     let html = attachments.length ? renderMsgAttachments(attachments) : "";
     if (text) html += window.md.render(text);
+    stickBottom = true; // sending a new prompt re-follows the conversation
     addMsg("user").innerHTML = html;
     post("send", { text: text, images: attachments });
     if (text && inputHistory[inputHistory.length - 1] !== text) { inputHistory.push(text); if (inputHistory.length > 100) inputHistory.shift(); }
@@ -611,6 +666,16 @@
       h += kv("Working dir", lastIde.cwd || "—");
       h += kv("Active file", lastIde.activeFile || "—");
       if (lastIde.hasSelection) h += kv("Selection", "lines " + lastIde.selStart + "–" + lastIde.selEnd);
+
+      // Live debugger / runtime state (only while a debug session is active).
+      if (lastIde.dbgActive) {
+        h += '<div class="sec">Runtime (debugger)</div>';
+        h += kv("State", lastIde.dbgMode || "—");
+        if (lastIde.dbgProcess) h += kv("Process", lastIde.dbgProcess);
+        if (lastIde.dbgFunction) h += kv("Stopped in", lastIde.dbgFunction + (lastIde.dbgLine ? " :" + lastIde.dbgLine : ""));
+        if (lastIde.dbgException) h += kv("Exception", lastIde.dbgException);
+        if (lastIde.dbgLocals) h += kv("Locals captured", lastIde.dbgLocals);
+      }
 
       // Project memory (CLAUDE.md the CLI auto-loads)
       h += '<div class="sec">Project memory (CLAUDE.md)</div>';
