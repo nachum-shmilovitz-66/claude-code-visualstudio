@@ -1,6 +1,6 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v0.2.43<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
+> **Latest release:** <!-- managed:version -->v0.2.44<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2026, 2022, 2019, and 2017** as a native tool-window chat — the same kind of
@@ -13,6 +13,48 @@ to your open solution.
 
 > **Unofficial community project.** Not affiliated with or endorsed by Anthropic. "Claude" and
 > "Claude Code" are products of Anthropic; you need your own Claude Code subscription/credentials.
+
+---
+
+## Screenshots
+
+![Claude Code chat panel docked in Visual Studio](docs/images/hero.png)
+
+*The Claude Code panel docked next to Solution Explorer — ask, and Claude reads and edits your code, with the model, permission mode, and reasoning effort all in the composer.*
+
+### Debug-aware: reads your running code to find the root cause
+
+When the debugger is **paused** at a breakpoint or exception, Claude reads the **live runtime** — call stack, locals, arguments, and the thrown exception — and reasons about *why* the code broke, not just the static source. Every pause drops an **"Ask Claude about this"** banner so you can hand the live state straight to Claude.
+
+> Verified with **C#/.NET**. Other languages Visual Studio can debug (e.g. C / C++) are expected to work but are **not yet tested**.
+
+![Runtime debug banners — paused at a DivideByZeroException](docs/images/debug-exception.png)
+
+### Inline diffs, slash commands, and full composer control
+
+![Inline red/green diff of an edit](docs/images/inline-diff.png)
+
+*Every edit shows as an inline red/green diff card in the chat, plus an "Open diff" button for the full native VS Before/After window.*
+
+![Slash-command palette](docs/images/slash-palette.png)
+
+*The `/` palette — built-in commands plus your own CLI slash commands.*
+
+![Model and reasoning-effort picker](docs/images/model-effort.png)
+
+*Pick the model (Opus 4.8 / Fable 5 / Sonnet 4.6 / Haiku 4.5, or a custom id) and the per-model reasoning effort.*
+
+![Permission-mode picker](docs/images/permission-mode.png)
+
+*Ask before edits, edit automatically, plan mode, or full auto — plus a thinking-stream toggle.*
+
+![Context-window usage](docs/images/context.png)
+
+*Live context-window breakdown and IDE context (working dir, active file, `CLAUDE.md`, open files).*
+
+![Account and usage limits](docs/images/usage.png)
+
+*Your Claude plan's session and weekly usage, read from the CLI login.*
 
 ---
 

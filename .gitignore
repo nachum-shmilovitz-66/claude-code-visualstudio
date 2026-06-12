@@ -21,5 +21,8 @@ packages/
 Thumbs.db
 .DS_Store
 
+# Un-redacted screenshot originals (contain email/paths/private code — never commit)
+docs/images/raw/
+
 # Upgrade logs
 UpgradeLog.htm
