@@ -61,20 +61,21 @@ When the debugger is **paused** at a breakpoint or exception, Claude reads the *
 ## How it works
 
 ```
-┌─────────────────────────── Visual Studio (devenv) ───────────────────────────┐
-│                                                                               │
-│  Tool window  ──► WebView2 (HTML/JS chat UI)  ◄──► WebViewHost (JSON bridge)   │
-│                                                          │                     │
-│                                                   ClaudeChatControl            │
-│                                                    │            │              │
-│                              IdeContextService ◄───┘            └──► ClaudeSession
-│                              ThemeService                              │       │
-│                              (DTE / Roslyn / VSColorTheme)             ▼       │
-└───────────────────────────────────────────────────────────────────┬─────────┘
-                                                                      │ stdin/stdout
-                                                            stream-json (NDJSON)
-                                                                      ▼
-                                                          claude CLI (Node, your login)
+┌────────────────────────── Visual Studio (devenv) ──────────────────────────┐
+│                                                                            │
+│  Tool window ──► WebView2 (HTML/JS chat UI) ◄──► WebViewHost (JSON bridge) │
+│                                                │                           │
+│                                        ClaudeChatControl                   │
+│                                          │           │                     │
+│      IdeContextService ◄─────────────────┘           └──► ClaudeSession    │
+│      ThemeService                                               │          │
+│      (DTE / Roslyn / VSColorTheme)                              ▼          │
+│                                                                            │
+└─────────────────────────────────────────────────────────────────┬──────────┘
+                                                                  │ stdin/stdout
+                                                    stream-json (NDJSON)
+                                                                  ▼
+                                              claude CLI (Node, your login)
 ```
 
 - **WebView2** hosts the chat UI (served from a virtual host, so it looks/behaves like the VS Code panel).
