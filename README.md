@@ -340,6 +340,17 @@ a Release).
 
 ---
 
+## Privacy
+
+**No telemetry. This extension runs no servers of its own and sends nothing to the extension author** —
+there is no analytics endpoint and no author backend. Two network paths exist, both authenticated with
+*your own* Claude credentials: the `claude` CLI sends your prompts/code to Anthropic (exactly as it does
+in a terminal), and the extension calls `api.anthropic.com` directly to show your account & usage. Chat
+transcripts are stored locally only and encrypted at rest with Windows DPAPI. Full details in
+[PRIVACY.md](PRIVACY.md).
+
+---
+
 ## License / disclaimer
 
 This is an unofficial community integration. "Claude" and "Claude Code" are products of Anthropic.
