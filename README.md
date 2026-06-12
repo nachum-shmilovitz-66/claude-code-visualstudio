@@ -18,7 +18,7 @@ to your open solution.
 
 ## Screenshots
 
-![Claude Code chat panel docked in Visual Studio](docs/images/hero.png)
+<img src="docs/images/hero.png" width="600" alt="Claude Code chat panel docked in Visual Studio">
 
 *The Claude Code panel docked next to Solution Explorer — ask, and Claude reads and edits your code, with the model, permission mode, and reasoning effort all in the composer.*
 
@@ -28,33 +28,24 @@ When the debugger is **paused** at a breakpoint or exception, Claude reads the *
 
 > Verified with **C#/.NET**. Other languages Visual Studio can debug (e.g. C / C++) are expected to work but are **not yet tested**.
 
-![Runtime debug banners — paused at a DivideByZeroException](docs/images/debug-exception.png)
+<img src="docs/images/debug-exception.png" width="440" alt="Runtime debug banners — paused at a DivideByZeroException">
 
 ### Inline diffs, slash commands, and full composer control
 
-![Inline red/green diff of an edit](docs/images/inline-diff.png)
-
-*Every edit shows as an inline red/green diff card in the chat, plus an "Open diff" button for the full native VS Before/After window.*
-
-![Slash-command palette](docs/images/slash-palette.png)
-
-*The `/` palette — built-in commands plus your own CLI slash commands.*
-
-![Model and reasoning-effort picker](docs/images/model-effort.png)
-
-*Pick the model (Opus 4.8 / Fable 5 / Sonnet 4.6 / Haiku 4.5, or a custom id) and the per-model reasoning effort.*
-
-![Permission-mode picker](docs/images/permission-mode.png)
-
-*Ask before edits, edit automatically, plan mode, or full auto — plus a thinking-stream toggle.*
-
-![Context-window usage](docs/images/context.png)
-
-*Live context-window breakdown and IDE context (working dir, active file, `CLAUDE.md`, open files).*
-
-![Account and usage limits](docs/images/usage.png)
-
-*Your Claude plan's session and weekly usage, read from the CLI login.*
+<table>
+<tr>
+<td width="50%"><img src="docs/images/inline-diff.png" alt="Inline red/green diff of an edit"><br><sub>Inline red/green diff per edit, plus "Open diff" for the native VS Before/After window.</sub></td>
+<td width="50%"><img src="docs/images/slash-palette.png" alt="Slash-command palette"><br><sub>The <code>/</code> palette — built-in commands plus your own CLI slash commands.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/model-effort.png" alt="Model and reasoning-effort picker"><br><sub>Pick the model (Opus 4.8 / Fable 5 / Sonnet 4.6 / Haiku 4.5, or a custom id) and per-model reasoning effort.</sub></td>
+<td><img src="docs/images/permission-mode.png" alt="Permission-mode picker"><br><sub>Ask before edits, edit automatically, plan mode, or full auto — plus a thinking-stream toggle.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/context.png" alt="Context-window usage"><br><sub>Live context-window breakdown, IDE context, and MCP server health.</sub></td>
+<td><img src="docs/images/usage.png" alt="Account and usage limits"><br><sub>Your Claude plan's session and weekly usage, read from the CLI login.</sub></td>
+</tr>
+</table>
 
 ---
 
