@@ -19,12 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This is an unofficial, community project. It is not affiliated with, endorsed
-by, or sponsored by Anthropic. "Claude", "Claude Code", and "Anthropic" are
-trademarks/products of Anthropic, used here only descriptively to identify the
-Claude Code CLI that this extension integrates with. No Anthropic logo is used
-or shipped. You must supply your own Claude account/credentials to use the
-underlying CLI.
