@@ -54,7 +54,8 @@ namespace ClaudeCode.VisualStudio.Services
             {
                 var path = FileFor(cwd);
                 if (!File.Exists(path)) return null;
-                return JsonSerializer.Deserialize<SessionRecord>(File.ReadAllText(path));
+                var json = ReadDecrypted(path);
+                return json == null ? null : JsonSerializer.Deserialize<SessionRecord>(json);
             }
             catch { return null; }
         }
@@ -67,7 +68,7 @@ namespace ClaudeCode.VisualStudio.Services
                 Directory.CreateDirectory(Dir);
                 if (rec.Messages != null && rec.Messages.Count > MaxMessages)
                     rec.Messages.RemoveRange(0, rec.Messages.Count - MaxMessages);
-                File.WriteAllText(FileFor(cwd), JsonSerializer.Serialize(rec));
+                WriteEncrypted(FileFor(cwd), JsonSerializer.Serialize(rec));
             }
             catch { }
         }
@@ -76,6 +77,50 @@ namespace ClaudeCode.VisualStudio.Services
         {
             try { var p = FileFor(cwd); if (File.Exists(p)) File.Delete(p); }
             catch { }
+        }
+
+        // The transcript can contain anything discussed in chat (incl. secrets), so it is encrypted
+        // at rest with DPAPI — per-user, machine-bound, no key management. A short magic prefix marks
+        // an encrypted file; a file without it is read as legacy plaintext (written before encryption
+        // was added) and silently re-encrypted on the next Save.
+        private static readonly byte[] Magic = Encoding.ASCII.GetBytes("CCVS1\n");
+
+        private static void WriteEncrypted(string path, string json)
+        {
+            try
+            {
+                var cipher = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.CurrentUser);
+                var buf = new byte[Magic.Length + cipher.Length];
+                Buffer.BlockCopy(Magic, 0, buf, 0, Magic.Length);
+                Buffer.BlockCopy(cipher, 0, buf, Magic.Length, cipher.Length);
+                File.WriteAllBytes(path, buf);
+            }
+            catch
+            {
+                // DPAPI unavailable (rare) — fall back to plaintext so the conversation still persists.
+                File.WriteAllText(path, json);
+            }
+        }
+
+        private static string ReadDecrypted(string path)
+        {
+            var bytes = File.ReadAllBytes(path);
+            if (HasMagic(bytes))
+            {
+                var cipher = new byte[bytes.Length - Magic.Length];
+                Buffer.BlockCopy(bytes, Magic.Length, cipher, 0, cipher.Length);
+                var plain = ProtectedData.Unprotect(cipher, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(plain);
+            }
+            // Legacy plaintext JSON (pre-encryption). Read as-is; the next Save upgrades it.
+            return Encoding.UTF8.GetString(bytes);
+        }
+
+        private static bool HasMagic(byte[] b)
+        {
+            if (b.Length < Magic.Length) return false;
+            for (int i = 0; i < Magic.Length; i++) if (b[i] != Magic[i]) return false;
+            return true;
         }
     }
 }

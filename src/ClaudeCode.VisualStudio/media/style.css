@@ -145,6 +145,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .composer-nav .spacer { flex: 1 1 auto; }
 .composer-bar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .composer-bar .spacer { flex: 1 1 auto; }
+/* Model/Context/Usage now live on the composer bar — match the 28px control height so the single row aligns. */
+.composer-bar .tbtn { height: 28px; }
 .cbtn { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--fg); cursor: pointer; font-size: 15px; line-height: 1; }
 .cbtn:hover { background: var(--bg-input); }
 .cbtn.active { border-color: var(--accent); color: var(--accent); }

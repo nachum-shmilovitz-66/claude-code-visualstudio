@@ -2,23 +2,8 @@
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
     <Identity Id="ClaudeCode.VisualStudio.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.43" Language="en-US" Publisher="Nachum Shmilovitz" />
-    <DisplayName>Claude Code for Visual Studio</DisplayName>
-    <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant directly into Visual Studio — the same experience as the VS Code extension, docked next to Solution Explorer.
-
-━━━ FEATURES ━━━
-
-  •  Chat with Claude about your open solution — it reads and edits your code, runs tools, and shows results inline
-  •  Activity timeline — every response shows each step (thinking, searches, file reads/edits) on a connected rail with status dots
-  •  Runs in your open solution folder automatically — no extra configuration
-  •  Pick the model, permission mode, and thinking effort right from the composer
-  •  Live context-window usage ring, plus an account &amp; usage panel
-  •  Slash commands, image attachments, and one-click compaction
-  •  Edited files open automatically so you can review the diff
-
-━━━ REQUIREMENTS ━━━
-
-  •  Powered by the Claude Code CLI — sign in once by running 'claude' in a terminal
-  •  Visual Studio 2022 or 2026 (amd64)</Description>
+    <DisplayName>Claude Code for Visual Studio (Unofficial)</DisplayName>
+    <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant into Visual Studio as a native chat tool window docked next to Solution Explorer — the same experience as the VS Code extension. Chat about your open solution and Claude reads and edits your code, runs tools, and shows each step (thinking, searches, edits) inline. Pick the model, permission mode, and reasoning effort from the composer; track context-window usage and session cost; use slash commands, @-file mentions, and image attachments; and review changes as an inline diff. While debugging, it can read the paused runtime (call stack, locals, exceptions) so you can ask about live state. Powered by your locally installed Claude Code CLI — sign in once by running 'claude' in a terminal — inheriting your login, CLAUDE.md, MCP servers, and settings. Requires Visual Studio 2022 or 2026 (amd64) and the WebView2 Runtime.</Description>
     <MoreInfo>https://www.anthropic.com/claude-code</MoreInfo>
     <License>Resources\LICENSE.txt</License>
     <Icon>Resources\Icon.png</Icon>
