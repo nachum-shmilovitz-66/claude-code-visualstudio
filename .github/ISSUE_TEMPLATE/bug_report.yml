@@ -1,0 +1,52 @@
+name: Bug report
+description: Something isn't working in the Visual Studio extension
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For **security** issues, do not file here — see [SECURITY.md](../blob/develop/SECURITY.md).
+        This extension drives your local `claude` CLI; please confirm `claude --version` works in a terminal first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: Steps to reproduce, expected vs actual.
+    validations:
+      required: true
+  - type: input
+    id: ext-version
+    attributes:
+      label: Extension version
+      description: Extensions ▸ Manage Extensions ▸ Installed → "Claude Code for Visual Studio".
+      placeholder: e.g. 0.2.45
+    validations:
+      required: true
+  - type: dropdown
+    id: vs-version
+    attributes:
+      label: Visual Studio version
+      options:
+        - VS 2026 (18.x)
+        - VS 2022 (17.x)
+        - VS 2019 (16.x)
+        - VS 2017 (15.x)
+    validations:
+      required: true
+  - type: input
+    id: cli-version
+    attributes:
+      label: Claude CLI version
+      description: Output of `claude --version`.
+      placeholder: e.g. 2.1.84
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: |
+        Set the `CLAUDE_CODE_VS_DEBUG` environment variable, restart VS, reproduce, and paste any
+        relevant panel/Output text. **Scrub tokens, file paths, and private code first.**
+      render: text

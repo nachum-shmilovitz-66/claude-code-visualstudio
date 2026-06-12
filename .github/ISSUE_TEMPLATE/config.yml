@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/security/advisories/new
+    about: Report security issues privately — do not open a public issue.
+  - name: Claude Code CLI issues
+    url: https://github.com/anthropics/claude-code/issues
+    about: Problems with the underlying CLI (not this extension) belong upstream.
