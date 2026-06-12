@@ -1,0 +1,43 @@
+name: ci
+
+# Build the unit-test project and run the tests on every PR and push to develop.
+# The test project targets net48 (MSTest) and references the VSSDK extension project,
+# so it must be built with full MSBuild and run with VSTest — `dotnet test` cannot
+# build the referenced classic VSIX project.
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore
+        run: msbuild ClaudeCode.sln -t:Restore -p:Configuration=Debug
+
+      - name: Build test project
+        run: >
+          msbuild tests\ClaudeCode.VisualStudio.Tests\ClaudeCode.VisualStudio.Tests.csproj
+          -t:Build -p:Configuration=Debug -p:DeployExtension=false -p:CreateVsixContainer=false
+
+      - name: Run tests (VSTest)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vstest = & $vswhere -latest -products * -find "**\TestWindow\vstest.console.exe" | Select-Object -First 1
+          if (-not $vstest) { throw "vstest.console.exe not found" }
+          $dll = "tests\ClaudeCode.VisualStudio.Tests\bin\Debug\net48\ClaudeCode.VisualStudio.Tests.dll"
+          & $vstest $dll
