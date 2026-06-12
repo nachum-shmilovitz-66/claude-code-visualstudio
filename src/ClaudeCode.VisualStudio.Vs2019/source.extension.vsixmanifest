@@ -3,7 +3,7 @@
   <Metadata>
     <!-- Distinct Identity Id from the VS2022/2026 VSIX: the marketplace treats each Id as one
          extension with one VSIX, so the VS 2019 flavor ships as its own listing. -->
-    <Identity Id="ClaudeCode.VisualStudio.Vs2019.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.43" Language="en-US" Publisher="Nachum Shmilovitz" />
+    <Identity Id="ClaudeCode.VisualStudio.Vs2019.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="0.2.44" Language="en-US" Publisher="Nachum Shmilovitz" />
     <DisplayName>Claude Code for Visual Studio 2019 (Unofficial)</DisplayName>
     <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant into Visual Studio 2019 as a native chat tool window docked next to Solution Explorer — the same experience as the VS Code extension. Chat about your open solution and Claude reads and edits your code, runs tools, and shows each step (thinking, searches, edits) inline. Pick the model, permission mode, and reasoning effort from the composer; track context-window usage and session cost; use slash commands, @-file mentions, and image attachments; and review changes as an inline diff. While debugging, it can read the paused runtime (call stack, locals, exceptions) so you can ask about live state. Powered by your locally installed Claude Code CLI — sign in once by running 'claude' in a terminal — inheriting your login, CLAUDE.md, MCP servers, and settings. Requires Visual Studio 2019 (16.x) and the WebView2 Runtime (preinstalled on Windows 10/11).</Description>
     <MoreInfo>https://www.anthropic.com/claude-code</MoreInfo>
