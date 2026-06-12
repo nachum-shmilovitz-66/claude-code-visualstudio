@@ -1,0 +1,8 @@
+This is an unofficial, community project. It is not affiliated with, endorsed
+by, or sponsored by Anthropic. "Claude", "Claude Code", and "Anthropic" are
+trademarks/products of Anthropic, used here only descriptively to identify the
+Claude Code CLI that this extension integrates with. No Anthropic logo is used
+or shipped. You must supply your own Claude account/credentials to use the
+underlying CLI.
+
+The extension source is licensed under the MIT License; see LICENSE.
