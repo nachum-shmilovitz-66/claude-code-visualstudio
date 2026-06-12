@@ -13,7 +13,7 @@ namespace ClaudeCode.VisualStudio
     /// command that opens it. Loads in the background once the shell is ready.
     /// </summary>
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-    [InstalledProductRegistration("Claude Code", "Agentic coding assistant for Visual Studio.", "0.2.45")]
+    [InstalledProductRegistration("Claude Code", "Agentic coding assistant for Visual Studio.", "0.2.47")]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     // Dock as a tab next to Solution Explorer (its window GUID), instead of a free-floating right pane.
     [ProvideToolWindow(typeof(ClaudeChatToolWindow.Pane), Style = VsDockStyle.Tabbed, Window = "3AE79031-E1BC-11D0-8F78-00A0C9110057")]
@@ -61,7 +61,10 @@ namespace ClaudeCode.VisualStudio
             {
                 var dir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClaudeCodeVS");
-                marker = Path.Combine(dir, "shown.flag");
+                // Key the marker by VS major version so each edition (2017/2019/2022/2026) greets the
+                // user once on its own first install. A single machine-global flag meant that showing
+                // the panel on one edition suppressed the first-run greeting on every other edition.
+                marker = Path.Combine(dir, $"shown-{VsMajorVersion()}.flag");
                 if (File.Exists(marker)) return;
             }
             catch { return; }
@@ -82,6 +85,19 @@ namespace ClaudeCode.VisualStudio
                 }
                 catch { }
             }).FireAndForget();
+        }
+
+        // VS major version of the running devenv (17 = 2022, 18 = 2026, 16 = 2019, 15 = 2017),
+        // used to scope the first-run marker per edition. Falls back to "x" if unavailable.
+        private static string VsMajorVersion()
+        {
+            try
+            {
+                var exe = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+                return System.Diagnostics.FileVersionInfo.GetVersionInfo(exe)
+                    .FileMajorPart.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch { return "x"; }
         }
     }
 }

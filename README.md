@@ -1,6 +1,6 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v0.2.45<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
+> **Latest release:** <!-- managed:version -->v0.2.47<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2026, 2022, 2019, and 2017** as a native tool-window chat — the same kind of
@@ -218,6 +218,11 @@ Pick the mode from the **⚡ pill**. Default is **Ask before edits**.
 | **Edit automatically** (`acceptEdits`) | Claude applies file edits without asking. |
 | **Plan mode** (`plan`) | Read-only planning; Claude proposes a plan before changing files. |
 | **Auto mode** (`bypassPermissions`) | Full autonomy — Claude runs any tool without prompting. Use with care. |
+
+### Showing, hiding & disabling
+
+- **Show or hide the panel** — **View ▸ Claude Code** (also under **View ▸ Other Windows**). The **Tools ▸ Claude Code** menu item is checkable and reflects whether the panel is open, so toggling it opens or closes the window. The panel docks next to Solution Explorer.
+- **Disable, enable, or remove the extension** — **Extensions ▸ Manage Extensions ▸ Installed → "Claude Code for Visual Studio"**, then **Disable**, **Enable**, or **Uninstall**, and restart Visual Studio. Disabling stops it from loading without uninstalling; the underlying `claude` CLI is unaffected either way.
 
 ---
 
