@@ -1,6 +1,6 @@
 # Publishing to the Visual Studio Marketplace
 
-> Maintainer documentation. Regular users install from [Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest); contributors don't need this.
+> Maintainer documentation. Regular users install from [Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest); contributors don't need this.
 
 This is an **unofficial, community** extension. The artifacts below publish the built VSIX
 (`dist\ClaudeCode.VisualStudio-vs2022-2026.vsix`) to the Visual Studio Marketplace with `VsixPublisher.exe`.
@@ -45,7 +45,7 @@ Files involved:
    still contains it.
 5. **Commit `PRIVACY.md`.** `overview.md` links to a hosted `PRIVACY.md`; point that link at the raw
    GitHub URL for this repo
-   (`https://raw.githubusercontent.com/nachum-shmilovitz-66/vs-claude-code/develop/PRIVACY.md`) and
+   (`https://raw.githubusercontent.com/nachum-shmilovitz-66/claude-code-visualstudio/develop/PRIVACY.md`) and
    commit `PRIVACY.md` at the repo root on `develop` so the link resolves.
 6. **Listing images.** `overview.md` references images by **absolute hosted `https` URLs** (the raw
    repo URL for `marketplace/Preview.png`), which need **no** `assetFiles` mapping. If you instead want

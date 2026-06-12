@@ -446,7 +446,10 @@
     els.attachments.innerHTML = "";
     attachments.forEach((a, i) => {
       const c = document.createElement("span"); c.className = "chip";
-      c.innerHTML = '<img src="data:' + a.mediaType + ";base64," + a.data + '" /><span>' + window.md.esc(a.name || "image") + '</span><button data-i="' + i + '" style="background:none;border:none;color:inherit;cursor:pointer">×</button>';
+      // Sanitize the media type before it goes into the data: URI (mirrors renderMsgAttachments) so a
+      // crafted value can't break out of the src attribute. data is base64 (no quotes) from the host/clipboard.
+      const mt = (a.mediaType && /^image\//i.test(a.mediaType)) ? String(a.mediaType).replace(/[^a-z0-9/+.\-]/gi, "") : "image/png";
+      c.innerHTML = '<img src="data:' + mt + ";base64," + a.data + '" /><span>' + window.md.esc(a.name || "image") + '</span><button data-i="' + i + '" style="background:none;border:none;color:inherit;cursor:pointer">×</button>';
       c.querySelector("button").addEventListener("click", () => { attachments.splice(i, 1); renderAttachments(); });
       els.attachments.appendChild(c);
     });
@@ -480,6 +483,8 @@
   els.sendBtn.addEventListener("click", send);
   els.stopBtn.addEventListener("click", () => post("interrupt"));
   els.ringBtn.addEventListener("click", () => { closeAll(); post("compact"); showThinking("Compacting"); });
+  // Hover the ring to peek the context-usage panel (model, tokens, % remaining); click still compacts.
+  els.ringBtn.addEventListener("mouseenter", () => { if (topOpen !== "context") openTop("context"); });
 
   els.modelBtn.addEventListener("click", () => toggleTop("model"));
   els.contextBtn.addEventListener("click", () => toggleTop("context"));
@@ -677,6 +682,7 @@
     h += '<div class="ctxhead">' + window.md.esc(shownModel) + '</div>';
     h += '<div class="ctxsub">' + fmt(used) + " / " + fmt(win) + " tokens (" + pct + "%)</div>";
     h += '<div class="ctxbar">' + seg(sys, "#cc7a3b") + seg(msgs, "#b07cff") + seg(free, "transparent") + "</div>";
+    h += '<div class="ctxsub">' + Math.max(0, 100 - pct) + '% remaining until auto-compact — click the ◌ ring to compact now.</div>';
     h += '<div class="brk">';
     h += row("#cc7a3b", "System & tools (cached prefix)", sys, win);
     h += row("#b07cff", "Messages", msgs, win);

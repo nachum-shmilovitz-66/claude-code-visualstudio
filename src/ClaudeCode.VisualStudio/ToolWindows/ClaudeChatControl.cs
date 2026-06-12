@@ -1071,6 +1071,7 @@ namespace ClaudeCode.VisualStudio
 
                 var dir = Path.Combine(Path.GetTempPath(), "ClaudeCodeVS", "diff");
                 Directory.CreateDirectory(dir);
+                PruneOldDiffTemps(dir);
                 var tmp = Path.Combine(dir, Guid.NewGuid().ToString("N") + Path.GetExtension(snap.Path));
                 File.WriteAllText(tmp, snap.OldText);
 
@@ -1085,6 +1086,23 @@ namespace ClaudeCode.VisualStudio
                 Log.Write("ShowEdit failed: " + ex.Message);
                 try { await _ide.OpenFileAsync(snap.Path); } catch { }
             }
+        }
+
+        // The diff window holds its "before" temp open while shown, so the file we just wrote can't
+        // be deleted now. Instead best-effort sweep older snapshots left from prior diff windows /
+        // sessions so pre-edit file contents don't accumulate as plaintext in %TEMP%.
+        private static void PruneOldDiffTemps(string dir)
+        {
+            try
+            {
+                var cutoff = DateTime.UtcNow.AddHours(-6);
+                foreach (var f in Directory.GetFiles(dir))
+                {
+                    try { if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f); }
+                    catch { }
+                }
+            }
+            catch { }
         }
 
         // Enumerate workspace files for the @-mention picker.

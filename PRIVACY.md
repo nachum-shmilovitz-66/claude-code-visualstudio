@@ -85,6 +85,5 @@ Material changes will be reflected in this file in the project repository, with 
 
 ## Contact / support
 
-Questions or concerns: please open an issue on the project repository
-(https://bitbucket.org/nachumsh66/vs-claude-code) or contact the maintainer at
-`<YOUR_HOSTED_SUPPORT_URL>`.
+Questions or concerns: please open an issue on the
+[project repository](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/issues).

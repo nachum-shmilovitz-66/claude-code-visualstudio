@@ -1,6 +1,6 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v0.2.43<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest)
+> **Latest release:** <!-- managed:version -->v0.2.43<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2026, 2022, 2019, and 2017** as a native tool-window chat — the same kind of
@@ -89,7 +89,7 @@ missing, so you're never left at a raw error:
 
 ### From a release VSIX (recommended)
 1. Download the VSIX for your Visual Studio from the
-   [Releases page](https://github.com/nachum-shmilovitz-66/vs-claude-code/releases/latest):
+   [Releases page](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest):
    - `ClaudeCode.VisualStudio-vs2022-2026.vsix` — VS 2022 / 2026 (amd64)
    - `ClaudeCode.VisualStudio-vs2019.vsix` — VS 2019 (16.x, x86)
    - `ClaudeCode.VisualStudio-vs2017.vsix` — VS 2017 15.7+ (15.x, x86)
@@ -122,9 +122,10 @@ instance* with the extension loaded for debugging.
 
 1. Open your solution, then **View ▸ Claude Code**.
 2. Type a request and press **Enter** (Shift+Enter for a newline). Claude works in your solution's folder.
-3. Select code in the editor before sending — the selection and active file are attached as context automatically.
+3. Select code before sending — the selection, active file, open editors, and the VS **Error List (Problems)** are attached as context automatically.
 4. Paste an image into the input to attach it; type `@` to reference a file by name.
 5. **Stop** (■) interrupts the current turn; **/new** (or the slash palette) starts a fresh session.
+6. **Up/Down** in the composer browses your previously-sent inputs (shell-style). When the **debugger pauses**, a banner offers *"Ask Claude about this,"* and the paused call stack / locals / exception are attached to your next message.
 
 Your composer choices (model, effort, permission mode, "show thinking") are **persisted per working
 directory** and restored next time you open the panel.
@@ -147,8 +148,10 @@ directory** and restored next time you open the panel.
 | Model | Notes | Effort levels |
 |---|---|---|
 | **Default** | Opus 4.8 with 1M context — most capable for complex work | Off · Low · Medium · High · Extra high · Max · Ultracode |
+| **Fable** | Fable 5 — Anthropic's newest, strongest coding model | Off · Low · Medium · High · Extra high · Max · Ultracode |
 | **Sonnet** | Sonnet 4.6 — best for everyday tasks | Off · Low · Medium · High · Max |
 | **Haiku** | Haiku 4.5 — fastest for quick answers | Off · Low · Medium · High |
+| **Custom model…** | Type any model id or alias (e.g. `claude-opus-4-7[1m]`, dated snapshots, `[1m]` variants); availability depends on your CLI/account | inherits the Default range |
 
 Effort maps to extended-thinking token budget; **Ultracode** adds multi-agent workflows on top of the
 highest thinking level.
@@ -167,7 +170,9 @@ Type `/` in the composer to open the palette. Built-in commands:
 | `/clear` | Clear the chat |
 | `/new` | Start a new session |
 
-Your CLI slash commands (project/user `commands/`) also appear in the palette and are inserted into the input.
+The palette also lists everything your installed CLI exposes — its **own built-in commands**, your **skills**,
+and your **project/user `.claude/commands/`** — pulled live on session start, so the exact set depends on your
+CLI version and setup. Selecting one inserts it into the input. (MCP prompt commands, `mcp__*`, are hidden as noise.)
 
 ### Permission modes
 
@@ -194,8 +199,12 @@ Pick the mode from the **⚡ pill**. Default is **Ask before edits**.
 | Cost / token / duration usage readout | ✅ |
 | Uses your login, `CLAUDE.md`, MCP servers, hooks, settings | ✅ (inherited from CLI) |
 | Active-file + selection auto-context; `@`-file mentions | ✅ |
+| Open editors + VS Error List (Problems) auto-context | ✅ |
+| Live debugger/runtime context (pause banner, call stack, locals, exceptions) | ✅ |
+| Sent-input history (Up/Down in composer) | ✅ |
+| In-panel CLI install / **update** / login guidance | ✅ |
 | Opens files Claude edits in the editor | ✅ |
-| Model picker **+ per-model reasoning effort** | ✅ |
+| Model picker (Default / Fable / Sonnet / Haiku **+ custom id**) **+ per-model reasoning effort** | ✅ |
 | Permission-mode picker | ✅ |
 | Slash-command palette (built-ins + your CLI commands) | ✅ |
 | MCP server status — `/mcp` screen (live health) + Context panel | ✅ |
