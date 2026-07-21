@@ -103,19 +103,29 @@ namespace ClaudeCode.VisualStudio.WebView
             };
             core.NavigationStarting += (s, e) =>
             {
-                if (e.Uri != null &&
-                    !e.Uri.StartsWith("https://" + VirtualHost, StringComparison.OrdinalIgnoreCase))
+                if (!IsLocalUi(e.Uri))
                 {
                     e.Cancel = true;
                     OpenInBrowser(e.Uri);
                 }
             };
+            // Same gate for sub-frames. NavigationStarting fires only for the top-level document,
+            // so without this an injected frame could load a remote origin inside the control.
+            // Frames are already blocked by the page CSP (default-src 'none'); this is the second
+            // lock. Nothing is handed to the browser here — a frame load is never a user intent.
+            core.FrameNavigationStarting += (s, e) =>
+            {
+                if (!IsLocalUi(e.Uri)) e.Cancel = true;
+            };
 
             var mediaPath = Path.Combine(
                 Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty,
                 "media");
+            // DenyCors: the bundled UI (same origin) loads normally, but no other origin can read
+            // the media folder cross-origin. Allow would let any page that got loaded in this
+            // control fetch our sources.
             core.SetVirtualHostNameToFolderMapping(
-                VirtualHost, mediaPath, CoreWebView2HostResourceAccessKind.Allow);
+                VirtualHost, mediaPath, CoreWebView2HostResourceAccessKind.DenyCors);
 
             // Seed the VS theme into :root BEFORE the page renders, so the very first paint matches
             // the IDE (no white→dark→theme flash). Runs on document-created, ahead of app.js, which
@@ -198,12 +208,29 @@ namespace ClaudeCode.VisualStudio.WebView
                     return;
                 }
                 core.PostWebMessageAsJson(json);
-                Services.Log.Write("PostRaw OK " + Head(json));
+                // Verbose tier: the head of the payload can carry message content, and every
+                // host->page message passes through here. Failures below stay on the normal tier.
+                Services.Log.WriteVerbose("PostRaw OK " + Head(json));
             }
             catch (Exception ex)
             {
                 Services.Log.Write("PostRaw EXCEPTION: " + ex.Message + " :: " + Head(json));
             }
+        }
+
+        /// <summary>
+        /// True only for our own bundled UI origin. Security: this must be a parsed *host*
+        /// comparison, never a prefix test on the raw string — "https://claudecode.local" is a
+        /// prefix of both "https://claudecode.local.evil.com" and "https://claudecode.local@evil.com"
+        /// (the latter puts the literal host in the userinfo segment), and either would load a
+        /// remote page into a WebView that holds a bridge into this process.
+        /// </summary>
+        private static bool IsLocalUi(string uri)
+        {
+            if (string.IsNullOrEmpty(uri)) return false;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var u)) return false;
+            return u.Scheme == Uri.UriSchemeHttps &&
+                   string.Equals(u.Host, VirtualHost, StringComparison.OrdinalIgnoreCase);
         }
 
         private static void OpenInBrowser(string url)
@@ -236,7 +263,18 @@ namespace ClaudeCode.VisualStudio.WebView
 
         private static string JsStr(string s)
         {
-            return "'" + (s ?? string.Empty).Replace("\\", "\\\\").Replace("'", "\\'") + "'";
+            // Escapes everything that can terminate or escape a single-quoted JS string literal.
+            // The line terminators matter as much as the quote: a raw CR/LF -- or U+2028/U+2029,
+            // which JS also treats as line terminators -- ends the literal and turns the rest of
+            // the value into code. Callers pass theme colors today, but this is the one place
+            // C# builds JavaScript as text, so it escapes rather than trusting the caller.
+            return "'" + (s ?? string.Empty)
+                .Replace("\\", "\\\\")
+                .Replace("'", "\\'")
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n")
+                .Replace("\u2028", "\\u2028")
+                .Replace("\u2029", "\\u2029") + "'";
         }
 
         private static bool TryParseHex(string s, out System.Drawing.Color color)

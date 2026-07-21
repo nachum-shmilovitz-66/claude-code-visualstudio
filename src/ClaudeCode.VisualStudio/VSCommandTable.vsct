@@ -15,14 +15,22 @@
            Plain button (no checked/toggle state) with an image-moniker icon. -->
       <Button guid="ClaudeCodeCmdSet" id="OpenClaudeChat" priority="0xFFF0" type="Button">
         <Parent guid="guidSHLMainMenu" id="IDG_VS_VIEW_ORG_WINDOWS" />
-        <Icon guid="ImageCatalogGuid" id="CommentSparkle" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Icon guid="ClaudeBitmaps" id="bmpClaudeChat" />
         <Strings>
           <ButtonText>Claude Code</ButtonText>
           <LocCanonicalName>.View.ClaudeCode</LocCanonicalName>
         </Strings>
       </Button>
     </Buttons>
+
+    <!-- The command previously used the image-moniker KnownMonikers.CommentSparkle (id 4059).
+         That id is correct and present in the VS 18 image catalog, but it renders blank in the
+         View menu there, leaving the entry with no icon at all — which reads as broken and makes
+         the command hard to spot among the icon-bearing entries around it. A bundled 16x16 strip
+         always renders, and carries the product mark rather than a generic glyph. -->
+    <Bitmaps>
+      <Bitmap guid="ClaudeBitmaps" href="Resources\ClaudeMenuIcon.png" usedList="bmpClaudeChat" />
+    </Bitmaps>
   </Commands>
 
   <!-- Also surface the command under View > Other Windows. -->
@@ -48,9 +56,9 @@
       <IDSymbol name="IDG_VS_WNDO_OTRWNDWS1" value="0x019F" />
     </GuidSymbol>
 
-    <!-- Visual Studio Image Catalog (KnownMonikers). CommentSparkle = 4059. -->
-    <GuidSymbol name="ImageCatalogGuid" value="{ae27a6b0-e345-4288-96df-5eaf394ee369}">
-      <IDSymbol name="CommentSparkle" value="4059" />
+    <!-- Bundled menu icon strip (single 16x16 image, so the used id is 1). -->
+    <GuidSymbol name="ClaudeBitmaps" value="{BF0F61EF-0E30-4683-98F5-A9A0897A0B45}">
+      <IDSymbol name="bmpClaudeChat" value="1" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

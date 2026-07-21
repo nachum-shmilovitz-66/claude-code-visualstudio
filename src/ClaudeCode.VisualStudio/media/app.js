@@ -39,7 +39,13 @@
     (handlers[m.type] || function () {})(m.payload || {});
   }
   if (api && api.addEventListener) api.addEventListener("message", onHostMessage);
-  window.addEventListener("message", onHostMessage);
+  // Host messages arrive on the chrome.webview channel above. A bare window "message" listener
+  // would treat any window.postMessage as a trusted host message, so if one is needed as a
+  // fallback it must at least be same-window/same-origin.
+  window.addEventListener("message", function (ev) {
+    if (ev.source !== window || ev.origin !== location.origin) return;
+    onHostMessage(ev);
+  });
 
   // Stick-to-bottom: only auto-scroll when user is already near the bottom.
   // If user scrolled up to read history, leave scroll position alone.
@@ -416,6 +422,11 @@
     histIndex = -1; histDraft = "";
     els.input.value = ""; attachments = []; renderAttachments(); autoGrow(); showThinking("Working");
   }
+  // Restrict to the base64 alphabet before a value is concatenated into a data: URI inside an
+  // HTML attribute. Producers are trusted today (Convert.ToBase64String host-side, FileReader
+  // client-side) but nothing structurally enforces that, and the cost of enforcing it here is nil.
+  function b64(s) { return String(s == null ? "" : s).replace(/[^A-Za-z0-9+/=]/g, ""); }
+
   function renderMsgAttachments(list) {
     let h = '<div class="msg-attachments">';
     list.forEach((a) => {
@@ -423,7 +434,9 @@
       const nm = window.md.esc(a.name || (isImg ? "image" : "file"));
       if (isImg) {
         const mt = (a.mediaType && /^image\//i.test(a.mediaType)) ? String(a.mediaType).replace(/[^a-z0-9/+.\-]/gi, "") : "image/png";
-        const src = "data:" + mt + ";base64," + a.data;
+        // The payload is sanitized to the base64 alphabet for the same reason the media type is:
+        // both are concatenated into a src="..." attribute, so a stray quote would break out of it.
+        const src = "data:" + mt + ";base64," + b64(a.data);
         h += '<span class="msg-att-chip"><img class="msg-att-img" src="' + src + '" title="' + nm + ' — click to open" /><span class="msg-att-name">' + nm + "</span></span>";
       } else {
         h += '<span class="msg-att-file">📄 ' + nm + "</span>";
@@ -449,7 +462,7 @@
       // Sanitize the media type before it goes into the data: URI (mirrors renderMsgAttachments) so a
       // crafted value can't break out of the src attribute. data is base64 (no quotes) from the host/clipboard.
       const mt = (a.mediaType && /^image\//i.test(a.mediaType)) ? String(a.mediaType).replace(/[^a-z0-9/+.\-]/gi, "") : "image/png";
-      c.innerHTML = '<img src="data:' + mt + ";base64," + a.data + '" /><span>' + window.md.esc(a.name || "image") + '</span><button data-i="' + i + '" style="background:none;border:none;color:inherit;cursor:pointer">×</button>';
+      c.innerHTML = '<img src="data:' + mt + ";base64," + b64(a.data) + '" /><span>' + window.md.esc(a.name || "image") + '</span><button data-i="' + i + '" style="background:none;border:none;color:inherit;cursor:pointer">×</button>';
       c.querySelector("button").addEventListener("click", () => { attachments.splice(i, 1); renderAttachments(); });
       els.attachments.appendChild(c);
     });
@@ -518,7 +531,7 @@
   function renderModel() {
     let h = '<h3>Select a model <button class="close-x">×</button></h3>';
     models.forEach((m) => {
-      h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + ratioBadge(m.ratio) + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
+      h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + window.md.esc(m.id) + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + ratioBadge(m.ratio) + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
     const isCustom = !!cur.model && !models.some((m) => m.id === cur.model);
     h += '<div class="opt' + (isCustom ? " sel" : "") + '" data-id="__custom"><div class="obody"><div class="oname">Custom model…</div><div class="odesc">' + (isCustom ? window.md.esc(cur.model) : "Any model id or alias, e.g. claude-fable-5") + '</div></div>' + (isCustom ? '<div class="ochk">✓</div>' : "") + "</div>";
@@ -761,7 +774,7 @@
   function renderMode() {
     let h = '<div class="sec">Permission mode</div>';
     visibleModes().forEach((m) => {
-      h += '<div class="opt' + (m.id === cur.mode ? " sel" : "") + '" data-id="' + m.id + '"><div class="oicon">' + (m.icon || "") + '</div><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.mode ? '<div class="ochk">✓</div>' : "") + "</div>";
+      h += '<div class="opt' + (m.id === cur.mode ? " sel" : "") + '" data-id="' + window.md.esc(m.id) + '"><div class="oicon">' + (m.icon || "") + '</div><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.mode ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
     h += '<div class="effort-row"><div class="elabel">Show thinking <small>(stream reasoning)</small></div><button class="mini-toggle' + (thinkingVisible ? " on" : "") + '" id="thinkToggle">' + (thinkingVisible ? "On" : "Off") + '</button></div>';
     showC(h);

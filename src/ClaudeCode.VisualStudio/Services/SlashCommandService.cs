@@ -25,6 +25,7 @@ namespace ClaudeCode.VisualStudio.Services
             try
             {
                 var cli = ClaudeCliLocator.Locate();
+                if (!cli.Found) return result;   // CLI not installed: never spawn a bare name
                 var psi = new ProcessStartInfo
                 {
                     FileName = cli.FileName,

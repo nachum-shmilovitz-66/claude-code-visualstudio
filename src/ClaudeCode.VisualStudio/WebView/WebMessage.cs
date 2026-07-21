@@ -20,6 +20,12 @@ namespace ClaudeCode.VisualStudio.WebView
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            // Relaxed escaping only skips escaping HTML-sensitive characters inside JSON string
+            // values; quote and backslash escaping are unaffected, so a value containing markup
+            // or quotes still cannot break the envelope. It is safe *because* this JSON is only
+            // ever delivered via PostWebMessageAsJson and parsed as JSON — it is never embedded
+            // in an HTML or <script> context. Keep it that way; if a caller ever inlines this
+            // output into a document, switch to JavaScriptEncoder.Default first.
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
 
