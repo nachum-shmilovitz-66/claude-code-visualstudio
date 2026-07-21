@@ -16,6 +16,14 @@ namespace ClaudeCode.VisualStudio.Services
     public sealed class SessionRecord
     {
         public string SessionId { get; set; }
+
+        /// <summary>
+        /// Working directory <see cref="SessionId"/> was created in. The CLI stores conversations
+        /// per directory, so the id is only resumable from here — see <see cref="SessionStore.CanResume"/>.
+        /// Null on records written before this field existed.
+        /// </summary>
+        public string Cwd { get; set; }
+
         public string Model { get; set; } = "default";
         public string Mode { get; set; } = "default";
         public string Effort { get; set; } = "none";
@@ -72,6 +80,33 @@ namespace ClaudeCode.VisualStudio.Services
             }
             catch { }
         }
+
+        /// <summary>
+        /// True when <paramref name="rec"/>'s session id can be passed to <c>--resume</c> for a CLI
+        /// launched in <paramref name="cwd"/>.
+        ///
+        /// The CLI keys its conversation store by working directory (<c>~/.claude/projects/&lt;cwd&gt;/</c>),
+        /// so resuming an id from a different directory fails with "No conversation found with session
+        /// ID" and a non-zero exit. That happened routinely: the record is loaded once but the cwd is
+        /// re-resolved later (the tool window restores before the solution finishes loading, and falls
+        /// back to the user profile when no solution is open), so a session started in a solution folder
+        /// was saved — and then resumed — under whichever directory was current at the time.
+        ///
+        /// Legacy records carry no <see cref="SessionRecord.Cwd"/>; those stay resumable so upgrading
+        /// does not drop a live conversation. A wrong one now clears itself on the first failure
+        /// instead of failing on every send forever.
+        /// </summary>
+        public static bool CanResume(SessionRecord rec, string cwd)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.SessionId)) return false;
+            if (string.IsNullOrEmpty(rec.Cwd)) return true;
+            return string.Equals(Normalize(rec.Cwd), Normalize(cwd), StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Trailing separators are not a different directory; the cwd reaches us from several
+        // places (solution path, user profile) that do not agree on one.
+        private static string Normalize(string cwd)
+            => (cwd ?? string.Empty).Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         public static void Clear(string cwd)
         {

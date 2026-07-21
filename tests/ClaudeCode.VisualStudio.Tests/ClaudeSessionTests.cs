@@ -83,6 +83,53 @@ namespace ClaudeCode.VisualStudio.Tests
             Assert.IsTrue(ClaudeSession.IsSafeSessionId(new string('a', 100)));
         }
 
+        // ---- exit reporting ----------------------------------------------------------------
+        // Every non-zero exit used to be reported as "check that you are logged in", which sent
+        // users to re-authenticate for failures that had nothing to do with auth. The CLI's own
+        // stderr is the accurate thing to show.
+
+        [TestMethod]
+        public void IsMissingConversationError_MatchesTheCliMessage()
+        {
+            Assert.IsTrue(ClaudeSession.IsMissingConversationError(
+                "No conversation found with session ID: 19004b6e-92dd-4b1b-bdd6-71d3c3e91905"));
+            Assert.IsTrue(ClaudeSession.IsMissingConversationError(
+                "no conversation found with session id: abc"), "matching is case-insensitive");
+        }
+
+        [DataTestMethod]
+        [DataRow(null)]
+        [DataRow("")]
+        [DataRow("Invalid API key · Please run /login")]
+        public void IsMissingConversationError_IgnoresOtherFailures(string stderr)
+        {
+            Assert.IsFalse(ClaudeSession.IsMissingConversationError(stderr));
+        }
+
+        [TestMethod]
+        public void DescribeExit_ReportsTheStaleSessionInPlainTerms()
+        {
+            var msg = ClaudeSession.DescribeExit(1, "No conversation found with session ID: abc-123");
+            StringAssert.Contains(msg, "previous conversation");
+            Assert.IsFalse(msg.Contains("logged in"), "a stale session id is not an auth failure");
+            StringAssert.Contains(msg, "Send again");
+        }
+
+        [TestMethod]
+        public void DescribeExit_SurfacesTheCliStderr()
+        {
+            var msg = ClaudeSession.DescribeExit(1, "Credit balance is too low");
+            StringAssert.Contains(msg, "Credit balance is too low");
+        }
+
+        [TestMethod]
+        public void DescribeExit_FallsBackToLoginHintWhenNothingWasReported()
+        {
+            var msg = ClaudeSession.DescribeExit(1, null);
+            StringAssert.Contains(msg, "claude exited (code 1)");
+            StringAssert.Contains(msg, "logged in");
+        }
+
         // ---- command line construction ---------------------------------------------------
 
         private static string Args(ClaudeSessionOptions options)

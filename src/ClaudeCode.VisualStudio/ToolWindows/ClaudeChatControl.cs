@@ -726,7 +726,9 @@ namespace ClaudeCode.VisualStudio
                         {
                             bool hasMsgs = rec.Messages != null && rec.Messages.Count > 0;
                             _record = rec;
-                            if (hasMsgs && !string.IsNullOrEmpty(rec.SessionId)) _pendingResumeId = rec.SessionId;
+                            // Only resume an id that belongs to this working directory — the CLI
+                            // stores conversations per folder (see SessionStore.CanResume).
+                            if (hasMsgs && SessionStore.CanResume(rec, _cwd)) _pendingResumeId = rec.SessionId;
                             _model = InputValidation.SanitizeModel(rec.Model, "default");
                             _permissionMode = InputValidation.SanitizeChoice(rec.Mode, InputValidation.AllowedModes, "default");
                             _effort = InputValidation.SanitizeChoice(rec.Effort, InputValidation.AllowedEfforts, "none");
@@ -993,7 +995,13 @@ namespace ClaudeCode.VisualStudio
             {
                 _host.PostMessage("status", new { state = "idle" });
                 Log.Write("claude process exited (code " + code + ")");
-                if (code != 0) _host.PostMessage("error", new { message = "claude exited (code " + code + "). Check that you are logged in (run 'claude' once in a terminal)." });
+                if (code == 0) return;
+
+                // A session id the CLI cannot find would otherwise be re-sent on every message,
+                // failing identically forever. Drop it (here and in the store) so the next send
+                // starts a fresh session instead of looping.
+                if (ClaudeSession.IsMissingConversationError(s.LastStderr)) ForgetResumeId(s);
+                _host.PostMessage("error", new { message = ClaudeSession.DescribeExit(code, s.LastStderr) });
             };
             s.Diagnostic += d => Log.Write("diag: " + d);
         }
@@ -1171,6 +1179,27 @@ namespace ClaudeCode.VisualStudio
             _session?.RespondToPermission(id, behavior == "deny" ? "deny" : "allow", null);
         }
 
+        // Forget a session id the CLI could not resume, without touching the transcript: the
+        // stored one, the pending one, and the dead session object (EnsureSession reads its id
+        // back when restarting, which would otherwise resurrect the failing id).
+        private void ForgetResumeId(ClaudeSession dead)
+        {
+            _pendingResumeId = null;
+            if (_record != null && !string.IsNullOrEmpty(_record.SessionId))
+            {
+                _record.SessionId = null;
+                SessionStore.Save(_cwd, _record);
+            }
+            if (dead != null && ReferenceEquals(dead, _session))
+            {
+                _session = null;
+                // Off the event thread: this runs from the process's own Exited callback, and
+                // Dispose tears down that same Process object.
+                _ = System.Threading.Tasks.Task.Run(() => { try { dead.Dispose(); } catch { } });
+            }
+            Log.Write("dropped unresumable session id");
+        }
+
         private void ResetSession()
         {
             _session?.Dispose();
@@ -1188,7 +1217,11 @@ namespace ClaudeCode.VisualStudio
             {
                 if (_record == null) _record = new SessionRecord();
                 _record.Messages.Add(new StoredMessage { Role = role, Text = text ?? string.Empty });
-                _record.SessionId = _session?.SessionId ?? _record.SessionId;
+                // Stamp the directory alongside the id: the record can be saved under a different
+                // cwd than the one it started in (the tool window resolves the solution folder
+                // asynchronously), and only the id's own folder can resume it.
+                var live = _session?.SessionId;
+                if (!string.IsNullOrEmpty(live)) { _record.SessionId = live; _record.Cwd = _cwd; }
                 _record.Model = _model;
                 _record.Mode = _permissionMode;
                 _record.Effort = _effort;

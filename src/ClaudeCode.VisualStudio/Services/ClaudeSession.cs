@@ -64,6 +64,13 @@ namespace ClaudeCode.VisualStudio.Services
         public string SessionId { get; private set; }
         public bool IsRunning => _process != null && !_process.HasExited;
 
+        /// <summary>
+        /// Last line the CLI wrote to stderr, or null. Kept so a non-zero exit can be reported with
+        /// the reason the CLI actually gave instead of a canned guess. Security: this is CLI
+        /// diagnostic output, not user content — it is shown in the panel and must stay that way.
+        /// </summary>
+        public string LastStderr { get; private set; }
+
         public event Action<SystemInitInfo> SystemInit;
         public event Action AssistantStart;
         public event Action<string> TextDelta;
@@ -253,6 +260,41 @@ namespace ClaudeCode.VisualStudio.Services
         private static bool IsAsciiAlphanumeric(char c)
             => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
 
+        // ---- exit reporting ----------------------------------------------------------------
+        // The CLI exits non-zero for plenty of reasons that are not authentication (a stale
+        // --resume id, a bad flag, no credit). Reporting all of them as "check that you are
+        // logged in" sends the user off to re-authenticate and hides the real message, which
+        // the CLI already printed to stderr.
+
+        private const string MissingConversation = "no conversation found with session id";
+
+        /// <summary>
+        /// True when stderr says the requested <c>--resume</c> session does not exist here.
+        /// Callers use this to drop the stored session id so the next send starts clean.
+        /// </summary>
+        internal static bool IsMissingConversationError(string stderr)
+            => !string.IsNullOrEmpty(stderr) &&
+               stderr.IndexOf(MissingConversation, StringComparison.OrdinalIgnoreCase) >= 0;
+
+        /// <summary>Human-readable reason for a non-zero exit, preferring what the CLI reported.</summary>
+        internal static string DescribeExit(int code, string stderr)
+        {
+            if (IsMissingConversationError(stderr))
+            {
+                return "Could not resume the previous conversation — the claude CLI no longer has it " +
+                       "(conversations are stored per folder). Starting a fresh session. Send again to continue.";
+            }
+            if (!string.IsNullOrEmpty(stderr))
+            {
+                var line = stderr.Trim();
+                if (line.Length > 300) line = line.Substring(0, 300) + "…";
+                return "claude exited (code " + code.ToString(CultureInfo.InvariantCulture) + "): " + line;
+            }
+            // Nothing on stderr: the historical guess is still the most likely cause.
+            return "claude exited (code " + code.ToString(CultureInfo.InvariantCulture) +
+                   "). Check that you are logged in (run 'claude' once in a terminal).";
+        }
+
         internal static int ThinkingTokensForEffort(string effort)
         {
             switch ((effort ?? "").ToLowerInvariant())
@@ -401,7 +443,7 @@ namespace ClaudeCode.VisualStudio.Services
                 string line;
                 while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
-                    if (line.Length > 0) { Log.WriteVerbose("ERR " + line); Diagnostic?.Invoke("stderr: " + line); }
+                    if (line.Length > 0) { LastStderr = line; Log.WriteVerbose("ERR " + line); Diagnostic?.Invoke("stderr: " + line); }
                 }
             }
             catch { }

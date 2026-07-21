@@ -73,6 +73,58 @@ namespace ClaudeCode.VisualStudio.Tests
             finally { SessionStore.Clear(cwd); }
         }
 
+        // ---- resume eligibility ----------------------------------------------------------
+        // The CLI stores conversations per working directory, so a session id is only
+        // resumable from the directory it was created in. Resuming one from elsewhere makes
+        // the CLI exit 1 with "No conversation found with session ID".
+
+        [TestMethod]
+        public void SaveThenLoad_RoundTripsCwd()
+        {
+            var cwd = NewCwd();
+            try
+            {
+                SessionStore.Save(cwd, new SessionRecord { SessionId = "sid", Cwd = cwd });
+                Assert.AreEqual(cwd, SessionStore.Load(cwd).Cwd);
+            }
+            finally { SessionStore.Clear(cwd); }
+        }
+
+        [TestMethod]
+        public void CanResume_TrueWhenCwdMatches()
+        {
+            var rec = new SessionRecord { SessionId = "sid", Cwd = @"C:\proj\app" };
+            Assert.IsTrue(SessionStore.CanResume(rec, @"C:\proj\app"));
+            Assert.IsTrue(SessionStore.CanResume(rec, @"c:\PROJ\APP"), "cwd comparison is case-insensitive");
+            Assert.IsTrue(SessionStore.CanResume(rec, @"C:\proj\app\"), "a trailing separator is not a different directory");
+        }
+
+        [TestMethod]
+        public void CanResume_FalseWhenCwdDiffers()
+        {
+            // The reported bug: a session created under a solution folder was resumed after the
+            // solution closed and the cwd fell back to the user profile.
+            var rec = new SessionRecord { SessionId = "sid", Cwd = @"C:\proj\app" };
+            Assert.IsFalse(SessionStore.CanResume(rec, @"C:\Users\someone"));
+        }
+
+        [TestMethod]
+        public void CanResume_FalseWithoutSessionId()
+        {
+            Assert.IsFalse(SessionStore.CanResume(new SessionRecord { Cwd = @"C:\proj" }, @"C:\proj"));
+            Assert.IsFalse(SessionStore.CanResume(null, @"C:\proj"));
+        }
+
+        [TestMethod]
+        public void CanResume_TrueForLegacyRecordWithNoCwd()
+        {
+            // Records written before Cwd existed carry no directory. Keep resuming them so an
+            // upgrade doesn't drop everyone's live conversation; a wrong one now self-heals on
+            // the first failure instead of looping (see ClaudeSessionTests.DescribeExit).
+            var rec = new SessionRecord { SessionId = "sid", Cwd = null };
+            Assert.IsTrue(SessionStore.CanResume(rec, @"C:\anywhere"));
+        }
+
         [TestMethod]
         public void DifferentCwds_DoNotCollide()
         {
