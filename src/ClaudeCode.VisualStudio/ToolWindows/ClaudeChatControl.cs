@@ -468,6 +468,7 @@ namespace ClaudeCode.VisualStudio
             try
             {
                 var cli = ClaudeCliLocator.Locate();
+                if (!cli.Found) return null;
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = cli.FileName,
@@ -542,41 +543,35 @@ namespace ClaudeCode.VisualStudio
             };
         }
 
-        // True when an npm launcher (npm.cmd / npm.exe / npm) is on PATH — used to gate the
-        // optional one-click CLI install. We don't try to bootstrap Node itself.
-        private static bool IsNpmAvailable()
-        {
-            try
-            {
-                var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-                foreach (var dir in pathEnv.Split(Path.PathSeparator))
-                {
-                    if (string.IsNullOrWhiteSpace(dir)) continue;
-                    string d;
-                    try { d = dir.Trim(); } catch { continue; }
-                    if (File.Exists(Path.Combine(d, "npm.cmd")) ||
-                        File.Exists(Path.Combine(d, "npm.exe")) ||
-                        File.Exists(Path.Combine(d, "npm")))
-                        return true;
-                }
-            }
-            catch { }
-            return false;
-        }
+        // True when an npm launcher is on PATH — used to gate the optional one-click CLI install.
+        // We don't try to bootstrap Node itself. Shares one PATH walk with the launcher so the
+        // banner can never offer an install that the launch path would then refuse to resolve.
+        private static bool IsNpmAvailable() => !string.IsNullOrEmpty(ClaudeCliLocator.LocateNpm());
 
         // Runs the global CLI install in a VISIBLE terminal so the user sees progress + any errors
-        // and explicitly consents — never a silent background install. The command is a fixed
-        // literal (no webview input), so there is no injection surface. After it finishes the user
+        // and explicitly consents — never a silent background install. After it finishes the user
         // clicks "Re-check" (a VS restart may be needed for the new claude to be on VS's PATH).
+        //
+        // Security: npm is resolved to an ABSOLUTE path and the terminal is started outside the
+        // opened solution. cmd.exe resolves an unqualified name from its working directory before
+        // PATH, so "/k npm ..." with WorkingDirectory=<repo> would run a repo-supplied npm.cmd —
+        // code execution from merely opening a hostile repository and clicking Install.
         private void LaunchCliInstall()
         {
             try
             {
+                var npm = ClaudeCliLocator.LocateNpm();
+                if (string.IsNullOrEmpty(npm))
+                {
+                    Log.Write("LaunchCliInstall: npm not found on PATH");
+                    _host.PostMessage("error", new { message = "Could not find npm on PATH. Install Node.js, then click Re-check." });
+                    return;
+                }
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = "/k npm install -g @anthropic-ai/claude-code",
-                    WorkingDirectory = string.IsNullOrEmpty(_cwd) ? Environment.CurrentDirectory : _cwd,
+                    Arguments = "/k \"\"" + npm + "\" install -g @anthropic-ai/claude-code\"",
+                    WorkingDirectory = ClaudeCliLocator.SafeWorkingDirectory(),
                     UseShellExecute = true,
                 };
                 System.Diagnostics.Process.Start(psi);
@@ -591,19 +586,26 @@ namespace ClaudeCode.VisualStudio
         // the version the extension uses. Native self-update needs neither npm nor node.
         // Runs in a VISIBLE terminal (same consent model as install). The target is the located
         // CLI path (filesystem, never webview input), so there is no injection surface.
+        //
+        // Security: requires a resolved absolute path — the old bare "claude" fallback let cmd.exe
+        // resolve the name from its working directory, which was the opened repo. Started outside
+        // the solution folder for the same reason.
         private void LaunchCliUpdate()
         {
             try
             {
                 var cli = ClaudeCliLocator.Locate();
-                string target = (!string.IsNullOrEmpty(cli.ResolvedPath) && File.Exists(cli.ResolvedPath))
-                    ? cli.ResolvedPath
-                    : "claude";
+                if (!cli.Found || string.IsNullOrEmpty(cli.ResolvedPath) || !File.Exists(cli.ResolvedPath))
+                {
+                    Log.Write("LaunchCliUpdate: no resolved CLI path");
+                    _host.PostMessage("error", new { message = "Could not find the claude CLI to update. Install it, then click Re-check." });
+                    return;
+                }
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = "/k \"\"" + target + "\" update\"",
-                    WorkingDirectory = string.IsNullOrEmpty(_cwd) ? Environment.CurrentDirectory : _cwd,
+                    Arguments = "/k \"\"" + cli.ResolvedPath + "\" update\"",
+                    WorkingDirectory = ClaudeCliLocator.SafeWorkingDirectory(),
                     UseShellExecute = true,
                 };
                 System.Diagnostics.Process.Start(psi);
@@ -616,19 +618,29 @@ namespace ClaudeCode.VisualStudio
         // has no non-interactive auth path. Once authenticated, the credentials are shared, so
         // this extension's sessions pick them up. No webview-controlled input reaches the command
         // line (the only argument is the located CLI path), so there is no injection surface.
+        //
+        // Security: the launched command must be an ABSOLUTE quoted path. The old bare "claude"
+        // fallback was resolved by cmd.exe against its working directory — the opened solution —
+        // so a repo shipping claude.exe got executed on click. This one keeps the solution as the
+        // working directory on purpose (project-scoped /mcp OAuth needs the CLI to run there);
+        // that is safe because the auto-run command no longer depends on directory resolution.
+        // What the user subsequently types into their own shell is ordinary terminal risk.
         private void LaunchClaudeTerminal()
         {
             try
             {
                 var cli = ClaudeCliLocator.Locate();
-                string launch = (!string.IsNullOrEmpty(cli.ResolvedPath) && File.Exists(cli.ResolvedPath))
-                    ? "\"" + cli.ResolvedPath + "\""
-                    : "claude";
+                if (!cli.Found || string.IsNullOrEmpty(cli.ResolvedPath) || !File.Exists(cli.ResolvedPath))
+                {
+                    Log.Write("LaunchClaudeTerminal: no resolved CLI path");
+                    _host.PostMessage("error", new { message = "Could not find the claude CLI. Install it, then click Re-check." });
+                    return;
+                }
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = "/k " + launch,
-                    WorkingDirectory = string.IsNullOrEmpty(_cwd) ? Environment.CurrentDirectory : _cwd,
+                    Arguments = "/k \"\"" + cli.ResolvedPath + "\"\"",
+                    WorkingDirectory = string.IsNullOrEmpty(_cwd) ? ClaudeCliLocator.SafeWorkingDirectory() : _cwd,
                     UseShellExecute = true,
                 };
                 System.Diagnostics.Process.Start(psi);
@@ -665,7 +677,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "0.2.47",
+                version = "0.2.47.2",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,

@@ -18,12 +18,14 @@ jobs:
   test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions are pinned to full commit SHAs (matching release.yml): a mutable
+      # tag like @v4 lets whoever controls the tag change what runs in CI.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
       - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
 
       - name: Restore
         run: msbuild ClaudeCode.sln -t:Restore -p:Configuration=Debug

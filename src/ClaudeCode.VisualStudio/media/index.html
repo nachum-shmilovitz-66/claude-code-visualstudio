@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- img-src is deliberately NOT "https:": that would let any injected markup beacon out to an
+       arbitrary host. Attachments render as locally-built data: URIs, so data:/blob: plus our own
+       origin covers every image the UI actually shows. base-uri/form-action do not inherit from
+       default-src, so they are set explicitly — a <base> tag would otherwise repoint script src. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src https: data: blob:; style-src 'unsafe-inline' https://claudecode.local; script-src https://claudecode.local; font-src https://claudecode.local; connect-src https://claudecode.local;" />
+        content="default-src 'none'; img-src data: blob: https://claudecode.local; style-src 'unsafe-inline' https://claudecode.local; script-src https://claudecode.local; font-src https://claudecode.local; connect-src https://claudecode.local; base-uri 'none'; form-action 'none';" />
   <link rel="stylesheet" href="style.css?v=21" />
   <title>Claude Code</title>
 </head>

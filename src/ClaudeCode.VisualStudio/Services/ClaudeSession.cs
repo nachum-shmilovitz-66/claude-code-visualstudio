@@ -95,6 +95,15 @@ namespace ClaudeCode.VisualStudio.Services
             if (IsRunning) return;
 
             var cli = ClaudeCliLocator.Locate();
+            if (!cli.Found)
+            {
+                // No launcher on disk. Previously this spawned a bare "claude", which Windows
+                // resolves against devenv's current directory — the opened repo. Fail loudly
+                // into the first-run guidance instead of executing whatever is sitting there.
+                Log.Write("Start(): claude CLI not found; not spawning");
+                ErrorEvent?.Invoke("Could not find the claude CLI. Install it, then click Re-check in the setup banner.");
+                return;
+            }
             var args = BuildArguments(cli);
             Log.Write("Start(): file=" + cli.FileName + " resolved=" + cli.ResolvedPath + " cwd=" + _options.WorkingDirectory);
             Log.Write("Start(): args=" + args);
@@ -181,7 +190,9 @@ namespace ClaudeCode.VisualStudio.Services
             WriteLine(JsonSerializer.Serialize(msg));
         }
 
-        private string BuildArguments(ClaudeCliLocator.Result cli)
+        // internal for tests: this builds the actual CLI command line, so it is the one function
+        // where a validation regression turns directly into argument/shell injection.
+        internal string BuildArguments(ClaudeCliLocator.Result cli)
         {
             var sb = new StringBuilder();
             sb.Append(cli.ArgumentPrefix);
@@ -193,7 +204,10 @@ namespace ClaudeCode.VisualStudio.Services
 
             if (!string.IsNullOrEmpty(_options.PermissionMode))
             {
-                sb.Append(" --permission-mode ").Append(_options.PermissionMode);
+                // Defense in depth: every caller sanitizes already, but validating at the sink
+                // means a future caller cannot open an injection path without this failing closed.
+                sb.Append(" --permission-mode ")
+                  .Append(InputValidation.SanitizeChoice(_options.PermissionMode, InputValidation.AllowedModes, "default"));
             }
             if (PermissionPromptEnabled)
             {
@@ -206,7 +220,8 @@ namespace ClaudeCode.VisualStudio.Services
                          string.Equals(_options.Model, "default", StringComparison.OrdinalIgnoreCase))
                 ? DefaultModel
                 : _options.Model;
-            sb.Append(" --model ").Append(model);
+            // Same reasoning as the permission mode above — re-validate at the sink.
+            sb.Append(" --model ").Append(InputValidation.SanitizeModel(model, DefaultModel));
             int thinking = ThinkingTokensForEffort(_options.Effort);
             if (thinking > 0)
             {
@@ -221,15 +236,22 @@ namespace ClaudeCode.VisualStudio.Services
 
         // Defense-in-depth: the resume id is the CLI's own session id, but validate it is a
         // plain id (UUID-like) so it can never carry extra CLI flags / shell metacharacters.
-        private static bool IsSafeSessionId(string s)
+        // ASCII-only on purpose: char.IsLetterOrDigit accepts the whole Unicode letter/digit
+        // range (fullwidth forms, Arabic-Indic digits, ...), which has no business in a session
+        // id and only widens what reaches the cmd.exe shim. Matches InputValidation's explicit
+        // [A-Za-z0-9] classes rather than being a second, looser dialect of the same rule.
+        internal static bool IsSafeSessionId(string s)
         {
-            if (s.Length == 0 || s.Length > 100) return false;
+            if (string.IsNullOrEmpty(s) || s.Length > 100) return false;
             // First char must be alphanumeric so the value can't parse as another CLI flag.
-            if (!char.IsLetterOrDigit(s[0])) return false;
+            if (!IsAsciiAlphanumeric(s[0])) return false;
             foreach (var c in s)
-                if (!(char.IsLetterOrDigit(c) || c == '-' || c == '_')) return false;
+                if (!(IsAsciiAlphanumeric(c) || c == '-' || c == '_')) return false;
             return true;
         }
+
+        private static bool IsAsciiAlphanumeric(char c)
+            => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
 
         internal static int ThinkingTokensForEffort(string effort)
         {
