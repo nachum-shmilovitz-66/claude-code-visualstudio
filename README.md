@@ -1,6 +1,6 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v0.2.47<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
+> **Latest release:** <!-- managed:version -->v1.0.0<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2026, 2022, 2019, and 2017** as a native tool-window chat — the same kind of
@@ -38,7 +38,7 @@ When the debugger is **paused** at a breakpoint or exception, Claude reads the *
 <td width="50%"><img src="docs/images/slash-palette.png" alt="Slash-command palette"><br><sub>The <code>/</code> palette — built-in commands plus your own CLI slash commands.</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/model-effort.png" alt="Model and reasoning-effort picker"><br><sub>Pick the model (Opus 4.8 / Fable 5 / Sonnet 4.6 / Haiku 4.5, or a custom id) and per-model reasoning effort.</sub></td>
+<td><img src="docs/images/model-effort.png" alt="Model and reasoning-effort picker"><br><sub>Pick the model (latest Opus / Fable / Sonnet / Haiku, or a custom id) and per-model reasoning effort.</sub></td>
 <td><img src="docs/images/permission-mode.png" alt="Permission-mode picker"><br><sub>Ask before edits, edit automatically, plan mode, or full auto — plus a thinking-stream toggle.</sub></td>
 </tr>
 <tr>
@@ -181,11 +181,16 @@ directory** and restored next time you open the panel.
 
 | Model | Notes | Effort levels |
 |---|---|---|
-| **Default** | Opus 4.8 with 1M context — most capable for complex work | Off · Low · Medium · High · Extra high · Max · Ultracode |
-| **Fable** | Fable 5 — Anthropic's newest, strongest coding model | Off · Low · Medium · High · Extra high · Max · Ultracode |
-| **Sonnet** | Sonnet 4.6 — best for everyday tasks | Off · Low · Medium · High · Max |
-| **Haiku** | Haiku 4.5 — fastest for quick answers | Off · Low · Medium · High |
+| **Default** | Latest Opus with 1M context — most capable for complex work | Off · Low · Medium · High · Extra high · Max · Ultracode |
+| **Fable** | Anthropic's newest, strongest coding model | Off · Low · Medium · High · Extra high · Max · Ultracode |
+| **Sonnet** | Best for everyday tasks | Off · Low · Medium · High · Max |
+| **Haiku** | Fastest for quick answers | Off · Low · Medium · High |
 | **Custom model…** | Type any model id or alias (e.g. `claude-opus-4-7[1m]`, dated snapshots, `[1m]` variants); availability depends on your CLI/account | inherits the Default range |
+
+The four built-in entries send **aliases** (`opus[1m]`, `fable`, `sonnet`, `haiku`), not pinned model
+ids, so each one follows the newest model in its family as soon as your Claude Code CLI supports it —
+no extension update required. The picker shows the id the CLI actually resolved next to the selected
+entry once a session has started.
 
 Effort maps to extended-thinking token budget; **Ultracode** adds multi-agent workflows on top of the
 highest thinking level.

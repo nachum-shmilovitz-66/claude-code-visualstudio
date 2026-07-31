@@ -86,14 +86,18 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .node-main th, .node-main td { border: 1px solid var(--border); padding: 6px 10px; }
 .node-main th { background: var(--code-bg); font-weight: 600; }
 
-/* Tool cards */
-.tool { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-alt); overflow: hidden; }
-.tool-head { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; user-select: none; }
-.tool-head .tname { font-weight: 600; color: var(--accent); flex: 0 0 auto; white-space: nowrap; }
-.tool-head .tsummary { color: var(--fg-dim); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-head .chev { margin-left: auto; color: var(--fg-dim); transition: transform .15s; }
+/* Tool cards — borderless like the VS Code panel: the timeline rail is the only chrome, so a
+   tool call reads as a line of text (bold name + dim monospace argument) rather than a boxed card. */
+.tool { border: 0; border-radius: 0; background: transparent; overflow: visible; }
+.tool-head { display: flex; align-items: baseline; gap: 6px; padding: 0; cursor: pointer; user-select: none; }
+/* Tool name in the plain foreground (not the brand accent) and the argument summary dim +
+   monospace — matches how the VS Code panel prints "Grep <pattern>" / "Read <path>". The
+   summary wraps onto further lines instead of being ellipsised, so long paths stay readable. */
+.tool-head .tname { font-weight: 600; color: var(--fg); flex: 0 0 auto; white-space: nowrap; }
+.tool-head .tsummary { color: var(--fg-dim); font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.tool-head .chev { flex: 0 0 auto; color: var(--fg-dim); transition: transform .15s; }
 .tool.open .chev { transform: rotate(90deg); }
-.tool-body { display: none; border-top: 1px solid var(--border); padding: 8px 10px; }
+.tool-body { display: none; padding: 6px 0 0; }
 .tool.open .tool-body { display: block; }
 .tool-body pre { margin: 0; background: var(--code-bg); padding: 8px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
@@ -123,11 +127,13 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 @keyframes pulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
 
 /* Streamed extended-thinking (collapsible) */
-.think { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-alt); overflow: hidden; }
-.think-head { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; user-select: none; color: var(--fg-dim); font-style: italic; }
-.think-head .chev { color: var(--fg-dim); transition: transform .15s; }
+/* Borderless for the same reason as .tool above — VS Code prints "Thought for 4s" as a bare
+   dim line on the rail, not a boxed card. */
+.think { border: 0; border-radius: 0; background: transparent; overflow: visible; }
+.think-head { display: flex; align-items: baseline; gap: 6px; padding: 0; cursor: pointer; user-select: none; color: var(--fg-dim); font-style: italic; }
+.think-head .chev { flex: 0 0 auto; color: var(--fg-dim); transition: transform .15s; }
 .think.open .chev { transform: rotate(90deg); }
-.think-body { display: none; border-top: 1px solid var(--border); padding: 8px 10px; white-space: pre-wrap; color: var(--fg-dim); font-style: italic; font-size: 12px; line-height: 1.5; max-height: 240px; overflow-y: auto; }
+.think-body { display: none; padding: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg-dim); font-style: italic; font-size: 12px; line-height: 1.5; max-height: 240px; overflow-y: auto; }
 .think.open .think-body { display: block; }
 #messages.hide-thinking .think-node { display: none; }
 

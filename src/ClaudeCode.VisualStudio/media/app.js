@@ -104,8 +104,16 @@
       else if (x.type === "tool_use") renderToolUse({ id: x.id, name: x.name, input: x.input });
     }
   }
+  // The header wraps rather than ellipsising, so the summary can be long — but cap it so a
+  // pasted multi-hundred-char command can't turn one tool call into a wall of text.
+  const SUMMARY_MAX = 400;
   function summarize(name, input) {
-    try { if (!input) return ""; return input.command || input.file_path || input.path || input.pattern || input.url || (input.prompt ? String(input.prompt).slice(0, 80) : JSON.stringify(input).slice(0, 80)); }
+    try {
+      if (!input) return "";
+      const s = input.command || input.file_path || input.path || input.pattern || input.url ||
+        (input.prompt ? String(input.prompt).slice(0, 80) : JSON.stringify(input).slice(0, 80));
+      return String(s).length > SUMMARY_MAX ? String(s).slice(0, SUMMARY_MAX) + "…" : String(s);
+    }
     catch (e) { return ""; }
   }
   function isEditTool(name) { return name === "Edit" || name === "Write" || name === "MultiEdit"; }
@@ -338,18 +346,20 @@
       updateModeLabel();
     }
   }
-  // Maps a model picker id to its wire name for the "Switched to" divider.
-  const MODEL_WIRE = { default: "claude-opus-4-8[1m]", fable: "claude-fable-5", sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5-20251001" };
+  // Maps a model picker id to the wire name handed to the CLI, also shown in the "Switched to"
+  // divider. All aliases, never dated ids — the CLI resolves each to the newest model in that
+  // family at launch, so a new release needs no extension rebuild. Mirrors ClaudeSession.DefaultModel.
+  const MODEL_WIRE = { default: "opus[1m]", fable: "fable", sonnet: "sonnet", haiku: "haiku" };
   // Quick-picks shown under the Custom-model input — click to fill + apply. Deliberately
-  // excludes models already one-click in the main picker (Default=Opus 4.8 1M, Fable, Sonnet,
-  // Haiku); lists the *other* Opus variants instead. Still open-ended: any valid id works
+  // excludes what the main picker already offers one-click; lists the other context/family
+  // combinations plus pinned older snapshots. Still open-ended: any valid id works
   // (dated snapshots, [1m] 1M-context variants, etc). Availability depends on the CLI/account.
   const MODEL_SUGGESTIONS = [
-    { id: "claude-opus-4-7[1m]", name: "Opus 4.7 · 1M context" },
-    { id: "claude-opus-4-7", name: "Opus 4.7 · standard context" },
-    { id: "claude-opus-4-6[1m]", name: "Opus 4.6 · 1M context" },
-    { id: "claude-opus-4-6", name: "Opus 4.6 · standard context" },
-    { id: "claude-opus-4-8", name: "Opus 4.8 · standard context (200k)" },
+    { id: "opus", name: "Opus · latest, standard context (200k)" },
+    { id: "sonnet[1m]", name: "Sonnet · latest, 1M context" },
+    { id: "claude-opus-4-8[1m]", name: "Opus 4.8 · pinned, 1M context" },
+    { id: "claude-opus-4-8", name: "Opus 4.8 · pinned, standard context" },
+    { id: "claude-opus-4-7[1m]", name: "Opus 4.7 · pinned, 1M context" },
   ];
   function showModelDivider(id) {
     const d = document.createElement("div");
@@ -483,8 +493,6 @@
   els.sendBtn.addEventListener("click", send);
   els.stopBtn.addEventListener("click", () => post("interrupt"));
   els.ringBtn.addEventListener("click", () => { closeAll(); post("compact"); showThinking("Compacting"); });
-  // Hover the ring to peek the context-usage panel (model, tokens, % remaining); click still compacts.
-  els.ringBtn.addEventListener("mouseenter", () => { if (topOpen !== "context") openTop("context"); });
 
   els.modelBtn.addEventListener("click", () => toggleTop("model"));
   els.contextBtn.addEventListener("click", () => toggleTop("context"));
@@ -518,7 +526,11 @@
   function renderModel() {
     let h = '<h3>Select a model <button class="close-x">×</button></h3>';
     models.forEach((m) => {
-      h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + ratioBadge(m.ratio) + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
+      // Entries are aliases, so the descriptions are version-free. For the selected one append the
+      // id the CLI actually resolved (from the session `init` event) — that tracks new releases by
+      // itself, no rebuild needed. Before the first turn ctx.model is empty and it is simply omitted.
+      const resolved = m.id === cur.model && ctx.model ? " · " + ctx.model : "";
+      h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc((m.desc || "") + resolved) + '</div></div>' + ratioBadge(m.ratio) + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
     const isCustom = !!cur.model && !models.some((m) => m.id === cur.model);
     h += '<div class="opt' + (isCustom ? " sel" : "") + '" data-id="__custom"><div class="obody"><div class="oname">Custom model…</div><div class="odesc">' + (isCustom ? window.md.esc(cur.model) : "Any model id or alias, e.g. claude-fable-5") + '</div></div>' + (isCustom ? '<div class="ochk">✓</div>' : "") + "</div>";

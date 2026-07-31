@@ -7,6 +7,18 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-31
+
+First stable release.
+
+- **Models now follow new releases automatically.** The four built-in picker entries send CLI
+  *aliases* (`opus[1m]`, `fable`, `sonnet`, `haiku`) instead of pinned ids, so a new Opus/Sonnet
+  ships without an extension update. Default previously pinned `claude-opus-4-8[1m]`, which
+  downgraded sessions once Opus 5 was out. The picker shows the id the CLI actually resolved.
+- **Chat transcript restyled to match the VS Code panel** — borderless tool and thinking rows,
+  tool names in the plain foreground instead of the brand accent, dim monospace arguments that
+  wrap instead of being ellipsised.
+- Context/Usage panels no longer auto-open on hover; they open on click only.
 - Project docs: CHANGELOG, CONTRIBUTING, SECURITY policy, issue templates, and a PR test workflow.
 
 ## [0.2.45] - 2026-06-12

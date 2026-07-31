@@ -27,7 +27,7 @@ Because it shells out to *your* locally-installed CLI, it inherits your existing
 - **Activity timeline** — every response renders each step (thinking, searches, file reads/edits) on a connected rail with status dots.
 - **Inline diffs** — each edit shows as a red/green diff card in the chat, with an **Open diff** button for the full native Visual Studio Before/After window.
 - **Runs in your solution folder** automatically — no extra configuration.
-- **Model, mode & effort pickers** — pick Default (Opus 4.8 · 1M), **Fable 5**, Sonnet, Haiku, or **any custom model id**, set the permission mode, and dial reasoning effort right from the composer.
+- **Model, mode & effort pickers** — pick Default (latest Opus · 1M), **Fable**, Sonnet, Haiku, or **any custom model id**, set the permission mode, and dial reasoning effort right from the composer. Built-in entries track the newest model in each family automatically.
 - **Rich auto-context** — the active file and selection, your open editors, and the VS **Error List (Problems)** are attached automatically; `@`-mention any file by name.
 - **Live debugger/runtime context** — when the debugger pauses (breakpoint, step, or exception), a banner offers *"Ask Claude about this,"* and the paused call stack, locals, and exception are attached to your next message.
 - **Live usage** — context-window usage ring (hover it to see the breakdown and % remaining; click to compact) plus an account & usage panel with plan and rate-limit windows.
