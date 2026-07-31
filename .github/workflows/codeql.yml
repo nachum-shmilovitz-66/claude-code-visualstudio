@@ -1,0 +1,60 @@
+name: codeql
+
+# Static security analysis for the C# extension and the WebView UI's JavaScript.
+#
+# The C# lives in classic (non-SDK) VSSDK projects, so CodeQL's autobuild is unreliable here —
+# the build is driven explicitly with full MSBuild, the same way ci.yml does it. Only the test
+# project is built: it project-references the extension, so compiling it covers all the
+# extension sources while skipping VSIX packaging (which needs no analysis and is slow).
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  schedule:
+    # Weekly, so newly-published query packs surface findings without waiting for a push.
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: windows-latest
+    permissions:
+      security-events: write   # required to upload results to the Security tab
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [csharp, javascript-typescript]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      - name: Add MSBuild to PATH
+        if: matrix.language == 'csharp'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build (C#)
+        if: matrix.language == 'csharp'
+        run: |
+          msbuild ClaudeCode.sln -t:Restore -p:Configuration=Debug
+          msbuild tests\ClaudeCode.VisualStudio.Tests\ClaudeCode.VisualStudio.Tests.csproj -t:Build -p:Configuration=Debug -p:DeployExtension=false -p:CreateVsixContainer=false
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}

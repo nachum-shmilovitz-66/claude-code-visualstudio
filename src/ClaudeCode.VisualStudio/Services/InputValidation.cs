@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Text.RegularExpressions;
 
 namespace ClaudeCode.VisualStudio.Services
@@ -34,6 +36,55 @@ namespace ClaudeCode.VisualStudio.Services
                 foreach (var a in allowed)
                     if (string.Equals(a, value, StringComparison.Ordinal)) return value;
             return fallback;
+        }
+
+        /// <summary>
+        /// True when <paramref name="path"/> resolves to a location inside one of
+        /// <paramref name="roots"/>. Used to confine WebView-supplied paths to the workspace.
+        /// Compares canonicalized full paths, so "..\" segments, mixed separators and relative
+        /// forms cannot walk out of a root; the appended separator stops "C:\src-evil" from
+        /// matching the root "C:\src".
+        /// </summary>
+        internal static bool IsUnderAnyRoot(string path, IEnumerable<string> roots)
+        {
+            if (string.IsNullOrEmpty(path) || roots == null) return false;
+            string full;
+            try { full = Path.GetFullPath(path); } catch { return false; }
+
+            foreach (var r in roots)
+            {
+                if (string.IsNullOrEmpty(r)) continue;
+                string root;
+                try { root = Path.GetFullPath(r); } catch { continue; }
+                if (root.Length == 0) continue;
+                if (root[root.Length - 1] != Path.DirectorySeparatorChar)
+                    root += Path.DirectorySeparatorChar;
+                if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="path"/> is one of <paramref name="candidates"/>, compared as
+        /// canonicalized full paths.
+        /// </summary>
+        internal static bool IsSamePath(string path, IEnumerable<string> candidates)
+        {
+            if (string.IsNullOrEmpty(path) || candidates == null) return false;
+            string full;
+            try { full = Path.GetFullPath(path); } catch { return false; }
+
+            foreach (var c in candidates)
+            {
+                if (string.IsNullOrEmpty(c)) continue;
+                try
+                {
+                    if (string.Equals(Path.GetFullPath(c), full, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                catch { }
+            }
+            return false;
         }
     }
 }

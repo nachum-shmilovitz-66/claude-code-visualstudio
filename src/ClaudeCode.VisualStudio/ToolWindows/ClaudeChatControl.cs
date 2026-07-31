@@ -145,7 +145,7 @@ namespace ClaudeCode.VisualStudio
 
         private void OnMessageReceived(WebMessage message)
         {
-            Log.Write("WebMessage: " + message.Type);
+            Log.WriteVerbose("WebMessage: " + message.Type);
             switch (message.Type)
             {
                 case "ready":
@@ -245,6 +245,14 @@ namespace ClaudeCode.VisualStudio
 
         // Open a local file (optionally at a line) in the VS editor — used by the selection
         // chip on a sent message. Only opens an existing file in the editor; never executes.
+        //
+        // Security: the path arrives from the (local but untrusted) WebView, so it is confined to
+        // the workspace before being opened — otherwise a crafted openFile message could pull any
+        // readable file on disk (a credential store, another project's source) into the editor,
+        // where its contents then become attachable chat context. The legitimate sender is the
+        // selection chip, which can only ever name a file that is open in the IDE, so
+        // currently-open documents are allowed too — that keeps the chip working for files edited
+        // from outside the solution folder.
         private void OpenFileFromWebview(JsonElement payload)
         {
             string path = GetStr(payload, "path");
@@ -252,7 +260,30 @@ namespace ClaudeCode.VisualStudio
             int line = GetInt(payload, "line", 0);
             ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
-                try { await _ide.OpenFileAsync(path, line > 0 ? (int?)line : null); }
+                try
+                {
+                    var roots = new List<string>();
+                    if (!string.IsNullOrEmpty(_cwd)) roots.Add(_cwd);
+                    try
+                    {
+                        var folders = await _ide.GetWorkspaceFoldersAsync();
+                        if (folders != null) roots.AddRange(folders);
+                    }
+                    catch { }
+
+                    if (!InputValidation.IsUnderAnyRoot(path, roots))
+                    {
+                        List<string> open = null;
+                        try { open = await _ide.GetOpenFilesAsync(); } catch { }
+                        if (!InputValidation.IsSamePath(path, open))
+                        {
+                            Log.Write("openFile blocked (outside workspace and not an open document)");
+                            return;
+                        }
+                    }
+
+                    await _ide.OpenFileAsync(path, line > 0 ? (int?)line : null);
+                }
                 catch { }
             }).FireAndForget();
         }
@@ -665,7 +696,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.0",
+                version = "1.0.1",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,

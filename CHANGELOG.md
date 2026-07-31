@@ -7,6 +7,26 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-31
+
+Security hardening, from a full audit of the extension. No exploitable vulnerability was found;
+these close depth gaps and one logging defect.
+
+- **Chat traffic no longer logged in Release builds.** `WebViewHost.PostRaw` wrote the first 80
+  characters of every outbound message to `session.log` unconditionally, bypassing the `Verbose`
+  gate that was supposed to keep Release quiet — enough to capture the start of assistant output
+  and part of the account email. Now `WriteVerbose`; failures still log, without the payload.
+- **CSP `img-src` narrowed** to `data: blob:`. Nothing loads a remote image, so the previous
+  `https:` wildcard only stood to become an exfil channel if image markdown were ever supported.
+- **Markdown NUL sentinel made safe by construction.** `inline()` delimits code-span placeholders
+  with `\u0000`, which `esc()` does not escape, so model output containing a literal NUL could
+  forge one. Not exploitable (the placeholder table only ever holds escaped content), but the
+  escaping no longer rests on that invariant — NULs are stripped on entry to `render()`.
+- **WebView-supplied file paths confined to the workspace.** `openFile` now requires the path to
+  resolve inside a workspace root or to be an already-open document, so a crafted message cannot
+  pull an arbitrary file (a credential store, unrelated source) into the editor.
+- CodeQL workflow (C# + JavaScript, weekly and on PR).
+
 ## [1.0.0] - 2026-07-31
 
 First stable release.

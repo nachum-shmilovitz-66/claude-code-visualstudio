@@ -88,5 +88,56 @@ namespace ClaudeCode.VisualStudio.Tests
             CollectionAssert.AreEquivalent(
                 new[] { "none", "low", "medium", "high", "extrahigh", "max", "ultracode" }, InputValidation.AllowedEfforts);
         }
+
+        private static readonly string[] Roots = { @"C:\src\proj" };
+
+        [TestMethod]
+        public void IsUnderAnyRoot_InsideRoot_True()
+        {
+            Assert.IsTrue(InputValidation.IsUnderAnyRoot(@"C:\src\proj\a.cs", Roots));
+            Assert.IsTrue(InputValidation.IsUnderAnyRoot(@"C:\src\proj\sub\deep\b.cs", Roots));
+            // Case and separator variations still resolve inside the root.
+            Assert.IsTrue(InputValidation.IsUnderAnyRoot(@"c:\SRC\PROJ\a.cs", Roots));
+            Assert.IsTrue(InputValidation.IsUnderAnyRoot(@"C:/src/proj/a.cs", Roots));
+            // A trailing separator on the root must not change the outcome.
+            Assert.IsTrue(InputValidation.IsUnderAnyRoot(@"C:\src\proj\a.cs", new[] { @"C:\src\proj\" }));
+        }
+
+        [TestMethod]
+        public void IsUnderAnyRoot_Traversal_False()
+        {
+            // "..\" must not walk out of the root.
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(@"C:\src\proj\..\secrets.txt", Roots));
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(@"C:\src\proj\sub\..\..\..\secrets.txt", Roots));
+            // A sibling directory sharing the root's prefix must not match.
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(@"C:\src\proj-evil\a.cs", Roots));
+            // Unrelated locations, including the credential store this guard exists to protect.
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(@"C:\Users\bob\.claude\.credentials.json", Roots));
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(@"D:\other\a.cs", Roots));
+        }
+
+        [TestMethod]
+        public void IsUnderAnyRoot_NullEmptyOrNoRoots_False()
+        {
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(null, Roots));
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot("", Roots));
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(@"C:\src\proj\a.cs", null));
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(@"C:\src\proj\a.cs", new string[0]));
+            // A null/empty root entry is skipped rather than treated as "matches everything".
+            Assert.IsFalse(InputValidation.IsUnderAnyRoot(@"C:\src\proj\a.cs", new string[] { null, "" }));
+        }
+
+        [TestMethod]
+        public void IsSamePath_MatchesCanonicalizedCandidates()
+        {
+            var open = new[] { @"C:\elsewhere\open.cs" };
+            Assert.IsTrue(InputValidation.IsSamePath(@"C:\elsewhere\open.cs", open));
+            Assert.IsTrue(InputValidation.IsSamePath(@"c:\ELSEWHERE\open.cs", open));
+            Assert.IsTrue(InputValidation.IsSamePath(@"C:\elsewhere\sub\..\open.cs", open));
+            // A different file in the same directory is not a match.
+            Assert.IsFalse(InputValidation.IsSamePath(@"C:\elsewhere\other.cs", open));
+            Assert.IsFalse(InputValidation.IsSamePath(@"C:\elsewhere\open.cs", null));
+            Assert.IsFalse(InputValidation.IsSamePath(null, open));
+        }
     }
 }

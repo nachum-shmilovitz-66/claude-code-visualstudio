@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- img-src is data:/blob: only — every image in the UI is an attachment thumbnail built from a
+       data: URI, and nothing loads a remote image. Allowing `https:` here would mean that the day
+       image markdown is supported, model output could beacon out (a remote fetch with an
+       attacker-chosen path is a silent exfil channel). Keep it closed until something needs it. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src https: data: blob:; style-src 'unsafe-inline' https://claudecode.local; script-src https://claudecode.local; font-src https://claudecode.local; connect-src https://claudecode.local;" />
+        content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline' https://claudecode.local; script-src https://claudecode.local; font-src https://claudecode.local; connect-src https://claudecode.local;" />
   <link rel="stylesheet" href="style.css?v=21" />
   <title>Claude Code</title>
 </head>

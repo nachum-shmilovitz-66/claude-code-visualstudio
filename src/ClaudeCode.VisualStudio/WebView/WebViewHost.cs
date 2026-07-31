@@ -194,15 +194,21 @@ namespace ClaudeCode.VisualStudio.WebView
                 var core = _webView.CoreWebView2;
                 if (core == null)
                 {
-                    Services.Log.Write("PostRaw: CoreWebView2 NULL, dropping " + Head(json));
+                    Services.Log.Write("PostRaw: CoreWebView2 NULL, dropping message");
+                    Services.Log.WriteVerbose("PostRaw dropped: " + Head(json));
                     return;
                 }
                 core.PostWebMessageAsJson(json);
-                Services.Log.Write("PostRaw OK " + Head(json));
+                // Security: the envelope head carries message content — assistant text, account
+                // details (the accountData envelope reaches the email inside 80 chars). Gate it
+                // behind Verbose so Release builds stay quiet, per the Log policy.
+                Services.Log.WriteVerbose("PostRaw OK " + Head(json));
             }
             catch (Exception ex)
             {
-                Services.Log.Write("PostRaw EXCEPTION: " + ex.Message + " :: " + Head(json));
+                // The failure itself is worth recording unconditionally; the payload is not.
+                Services.Log.Write("PostRaw EXCEPTION: " + ex.Message);
+                Services.Log.WriteVerbose("PostRaw EXCEPTION payload: " + Head(json));
             }
         }
 
