@@ -8,7 +8,7 @@
 A native Visual Studio tool-window chat that drives the real `claude` CLI as a child process — an
 agentic coding workflow docked right next to Solution Explorer.
 
-![Claude Code chat in Visual Studio](https://raw.githubusercontent.com/nachum-shmilovitz-66/claude-code-visualstudio/develop/docs/images/hero.png)
+![Claude Code chat in Visual Studio](https://raw.githubusercontent.com/nachum-shmilovitz-66/claude-code-visualstudio/main/docs/images/hero.png)
 
 ## What it is
 
@@ -78,7 +78,7 @@ data handling at Anthropic is governed by [Anthropic's Privacy Policy](https://w
 and your Claude subscription. Conversation transcripts shown in the panel are stored **locally only**
 and **encrypted at rest** with Windows DPAPI (per-user); nothing is stored remotely by this extension.
 
-Full details: see [PRIVACY.md](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/blob/develop/PRIVACY.md)
+Full details: see [PRIVACY.md](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/blob/main/PRIVACY.md)
 in the project repository.
 
 ## Support

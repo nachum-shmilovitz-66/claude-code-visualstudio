@@ -45,8 +45,8 @@ Files involved:
    still contains it.
 5. **Commit `PRIVACY.md`.** `overview.md` links to a hosted `PRIVACY.md`; point that link at the raw
    GitHub URL for this repo
-   (`https://raw.githubusercontent.com/nachum-shmilovitz-66/claude-code-visualstudio/develop/PRIVACY.md`) and
-   commit `PRIVACY.md` at the repo root on `develop` so the link resolves.
+   (`https://raw.githubusercontent.com/nachum-shmilovitz-66/claude-code-visualstudio/main/PRIVACY.md`) and
+   commit `PRIVACY.md` at the repo root on `main` so the link resolves.
 6. **Listing images.** `overview.md` references images by **absolute hosted `https` URLs** (the raw
    repo URL for `marketplace/Preview.png`), which need **no** `assetFiles` mapping. If you instead want
    to embed local screenshots, add them under `marketplace/` (e.g. `screenshot-chat.png`), reference

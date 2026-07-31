@@ -1,15 +1,15 @@
 name: ci
 
-# Build the unit-test project and run the tests on every PR and push to develop.
+# Build the unit-test project and run the tests on every PR and push to main.
 # The test project targets net48 (MSTest) and references the VSSDK extension project,
 # so it must be built with full MSBuild and run with VSTest — `dotnet test` cannot
 # build the referenced classic VSIX project.
 
 on:
   pull_request:
-    branches: [develop]
+    branches: [main]
   push:
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read
