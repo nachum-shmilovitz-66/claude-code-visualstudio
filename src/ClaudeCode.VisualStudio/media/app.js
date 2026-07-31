@@ -23,6 +23,8 @@
   let cur = { model: "default", mode: "default", effort: "none" };
   const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, turns: 0 };
   const ctx = { used: 0, window: 200000, windowReported: false, model: "", baseline: 0, system: 0 };
+  // Post-compaction token count, held across the compaction turn's trailing `result` event.
+  let compactPin = 0;
   let topOpen = null, cOpen = null;
   let updateDismissed = false; // user dismissed the "CLI update available" banner this session
   let inputHistory = [], histIndex = -1, histDraft = ""; // sent-input history; histIndex === -1 = live draft
@@ -222,8 +224,11 @@
       totals.costUsd += +(p.costUsd || 0); totals.inputTokens += +(p.inputTokens || 0);
       totals.outputTokens += +(p.outputTokens || 0); totals.turns += 1;
       totals.cacheReadTokens += +(p.cacheReadTokens || 0); totals.cacheCreationTokens += +(p.cacheCreationTokens || 0);
-      // context window usage
-      ctx.used = (+(p.inputTokens || 0)) + (+(p.cacheReadTokens || 0)) + (+(p.cacheCreationTokens || 0));
+      // context window usage. A /compact turn ends with a result whose usage still describes the
+      // PRE-compaction context, and it arrives after compact_boundary — so honour the post-compact
+      // figure the CLI already gave us for this one turn instead of letting it be clobbered.
+      if (compactPin) { ctx.used = compactPin; compactPin = 0; }
+      else ctx.used = (+(p.inputTokens || 0)) + (+(p.cacheReadTokens || 0)) + (+(p.cacheCreationTokens || 0));
       if (p.contextWindow) { ctx.window = +p.contextWindow; ctx.windowReported = true; }
       if (p.model) ctx.model = p.model;
       if (!ctx.baseline && p.cacheCreationTokens) ctx.baseline = +p.cacheCreationTokens;
@@ -267,7 +272,26 @@
     },
     accountData: (p) => { acct = p; if (topOpen === "usage") renderUsage(); },
     mcpList: (p) => { lastMcp = p.servers || []; lastMcpError = p.error || null; if (topOpen === "mcp") renderMcp(); },
-    compacted: (p) => { removeThinking(); endTurn(); const n = document.createElement("div"); n.className = "compacted-divider"; n.innerHTML = '<span>Compacted</span>'; els.messages.appendChild(n); ctx.used = 0; ctx.baseline = 0; updateRing(); scrollDown(); },
+    // The CLI compacted its context in place (system/compact_boundary). It emits no assistant
+    // text, so all the transcript needs is a divider — with the real before/after token counts
+    // from compact_metadata rather than a guess. "auto" means the window filled and the CLI
+    // compacted on its own, which is worth labelling differently from a deliberate /compact.
+    compacted: (p) => {
+      removeThinking(); endTurn();
+      const n = document.createElement("div");
+      n.className = "compacted-divider";
+      const pre = +(p.preTokens || 0), post = +(p.postTokens || 0);
+      let label = p.trigger === "auto" ? "Auto-compacted" : "Compacted";
+      if (pre && post) label += " · " + fmt(pre) + " → " + fmt(post) + " tokens";
+      n.innerHTML = "<span>" + window.md.esc(label) + "</span>";
+      els.messages.appendChild(n);
+      // Re-baseline the ring off what the CLI reports it actually kept, instead of zeroing and
+      // waiting for the next turn's result to correct it.
+      ctx.used = post || 0; ctx.baseline = 0; ctx.system = 0;
+      compactPin = post || 0;   // survive this turn's trailing `result` (see the result handler)
+      updateRing(); scrollDown();
+      if (topOpen === "context") renderContext();
+    },
     attachImage: (p) => { attachments.push({ mediaType: p.mediaType, data: p.data, name: p.name }); renderAttachments(); },
     insertText: (p) => { els.input.value += (els.input.value && !els.input.value.endsWith(" ") ? " " : "") + (p.text || ""); els.input.focus(); autoGrow(); },
     sentSelection: (p) => attachSelectionChip(p),

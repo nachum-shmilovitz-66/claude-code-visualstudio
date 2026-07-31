@@ -55,4 +55,16 @@ namespace ClaudeCode.VisualStudio.Services
         public string MediaType;
         public string Data;   // base64
     }
+
+    /// <summary>
+    /// A <c>system/compact_boundary</c> event: the CLI compacted its own context in place.
+    /// Carries the <c>compact_metadata</c> block, so the UI can report how much was reclaimed.
+    /// </summary>
+    public sealed class CompactInfo
+    {
+        public string Trigger;      // "manual" (user ran /compact) | "auto" (context filled up)
+        public long PreTokens;
+        public long PostTokens;
+        public long DurationMs;
+    }
 }

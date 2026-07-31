@@ -696,7 +696,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.1",
+                version = "1.0.2",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -985,31 +985,22 @@ namespace ClaudeCode.VisualStudio
                 });
                 _host.PostMessage("status", new { state = "idle" });
 
+                // A /compact turn produces no assistant reply worth keeping, so it is not appended
+                // to the transcript. The turn simply ends here — the CLI compacted in place and
+                // reported it via the Compacted event below; there is no session to restart.
                 if (!_compacting && !r.IsError)
                 {
                     AppendHistory("assistant", r.Text);
                 }
-
-                if (_compacting)
-                {
-                    _compacting = false;
-                    var summary = r.Text ?? "";
-                    _ = System.Threading.Tasks.Task.Run(() =>
-                    {
-                        try
-                        {
-                            _session?.Dispose();
-                            _session = null;
-                            _optionsDirty = false;       // fresh session, no --resume -> shrinks context
-                            _host.PostMessage("compacted", new { summary });
-                            EnsureSession();
-                            _session.SendUserMessage(
-                                "[Compacted summary of our prior conversation — continue from here]\n\n" + summary, null);
-                        }
-                        catch (Exception ex) { _host.PostMessage("error", new { message = ex.Message }); }
-                    });
-                }
+                _compacting = false;
             };
+            s.Compacted += c => _host.PostMessage("compacted", new
+            {
+                trigger = c.Trigger,          // "manual" from the button or /compact, "auto" when the window filled
+                preTokens = c.PreTokens,
+                postTokens = c.PostTokens,
+                durationMs = c.DurationMs,
+            });
             s.PermissionRequest += p => _host.PostMessage("permission", new { id = p.RequestId, tool = p.ToolName, input = RawJson(p.InputJson) });
             s.ErrorEvent += m => _host.PostMessage("error", new { message = m });
             s.Exited += code =>
@@ -1155,20 +1146,29 @@ namespace ClaudeCode.VisualStudio
             });
         }
 
+        // Compaction is delegated to the CLI's own /compact, which the headless stream-json input
+        // accepts like any other slash command. The CLI rewrites its context in place, keeps the
+        // same session, and reports the result as a system/compact_boundary event — no assistant
+        // text is produced, so nothing lands in the transcript.
+        //
+        // This previously asked the model to write a summary brief and then restarted the session
+        // seeded with it. That cost an extra full turn every time, and the brief streamed into the
+        // chat as an ordinary reply — which is why pressing the button printed a wall of markdown.
+        //
+        // Reached from both the ring button and /compact in the slash palette (the palette entry is
+        // a built-in that posts the same "compact" message, and shadows the CLI's own /compact).
         private void HandleCompact()
         {
-            if (_session == null || !_session.IsRunning) return;
+            if (_session == null || !_session.IsRunning)
+            {
+                _host.PostMessage("error", new { message = "Nothing to compact yet — send a message first." });
+                return;
+            }
             _compacting = true;
             _host.PostMessage("status", new { state = "thinking" });
             _ = System.Threading.Tasks.Task.Run(() =>
             {
-                try
-                {
-                    _session.SendUserMessage(
-                        "Summarize our entire conversation so far into a concise but complete context brief: " +
-                        "key decisions, code/files changed (with paths), current goal, and open tasks. Output ONLY the brief.",
-                        null);
-                }
+                try { _session.SendUserMessage("/compact", null); }
                 catch (Exception ex) { _host.PostMessage("error", new { message = ex.Message }); _compacting = false; }
             });
         }

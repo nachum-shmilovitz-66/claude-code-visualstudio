@@ -74,6 +74,7 @@ namespace ClaudeCode.VisualStudio.Services
         public event Action AssistantEnd;
         public event Action<ResultInfo> Result;
         public event Action<PermissionRequestInfo> PermissionRequest;
+        public event Action<CompactInfo> Compacted;
         public event Action<string> ErrorEvent;
         public event Action<int> Exited;
         public event Action<string> Diagnostic;
@@ -413,6 +414,25 @@ namespace ClaudeCode.VisualStudio.Services
         private void HandleSystem(JsonElement root)
         {
             var subtype = GetString(root, "subtype");
+
+            // The CLI compacted its own context (either from a /compact we sent, or automatically
+            // when the window filled). It reuses the same session — nothing to restart on our side,
+            // and no assistant text is emitted, so the transcript stays clean.
+            if (subtype == "compact_boundary")
+            {
+                var ci = new CompactInfo();
+                if (root.TryGetProperty("compact_metadata", out var meta) && meta.ValueKind == JsonValueKind.Object)
+                {
+                    ci.Trigger = GetString(meta, "trigger");
+                    ci.PreTokens = GetLong(meta, "pre_tokens");
+                    ci.PostTokens = GetLong(meta, "post_tokens");
+                    ci.DurationMs = GetLong(meta, "duration_ms");
+                }
+                Log.Write("compact_boundary trigger=" + ci.Trigger + " " + ci.PreTokens + " -> " + ci.PostTokens);
+                Compacted?.Invoke(ci);
+                return;
+            }
+
             if (subtype != "init") return;
 
             var info = new SystemInitInfo

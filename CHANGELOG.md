@@ -7,6 +7,20 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-31
+
+- **Compaction now uses the CLI's own `/compact`** instead of asking the model for a summary brief.
+  Pressing the context ring (or picking `/compact` in the palette) previously sent a hidden
+  "summarize our conversation" prompt, and the model's answer streamed into the chat as an ordinary
+  reply — so compacting printed a wall of markdown — then the session was torn down and restarted
+  seeded with that text. The CLI accepts `/compact` over its stream-json stdin, rewrites its context
+  in place, keeps the same session, and emits **no assistant text**. So: nothing is printed, no extra
+  model turn is billed, and no session restart is needed.
+- The compaction divider now reports the real before/after figures from `compact_boundary`
+  (e.g. *Compacted · 35.0k → 3.0k tokens*), and the context ring re-baselines off the CLI's
+  reported post-compaction size. Automatic compaction (when the window fills) is labelled
+  *Auto-compacted* and is now surfaced too, rather than passing silently.
+
 ## [1.0.1] - 2026-07-31
 
 Security hardening, from a full audit of the extension. No exploitable vulnerability was found;
