@@ -378,12 +378,14 @@
   // excludes what the main picker already offers one-click; lists the other context/family
   // combinations plus pinned older snapshots. Still open-ended: any valid id works
   // (dated snapshots, [1m] 1M-context variants, etc). Availability depends on the CLI/account.
+  // The display name is derived with prettyModel(), so these rows read the same
+  // "<model> · <what it is for>" way as the main picker without repeating the name here.
   const MODEL_SUGGESTIONS = [
-    { id: "opus", name: "Opus · latest, standard context (200k)" },
-    { id: "sonnet[1m]", name: "Sonnet · latest, 1M context" },
-    { id: "claude-opus-4-8[1m]", name: "Opus 4.8 · pinned, 1M context" },
-    { id: "claude-opus-4-8", name: "Opus 4.8 · pinned, standard context" },
-    { id: "claude-opus-4-7[1m]", name: "Opus 4.7 · pinned, 1M context" },
+    { id: "opus", desc: "Latest Opus, standard 200k context" },
+    { id: "sonnet[1m]", desc: "Latest Sonnet, 1M context" },
+    { id: "claude-opus-4-8[1m]", desc: "Pinned — stays on 4.8 as newer models ship" },
+    { id: "claude-opus-4-8", desc: "Pinned, standard 200k context" },
+    { id: "claude-opus-4-7[1m]", desc: "Pinned — previous Opus generation" },
   ];
   function showModelDivider(id) {
     const d = document.createElement("div");
@@ -547,17 +549,42 @@
     return '<div class="oratio" title="Token cost ≈ ' + r + '× the cheapest model (Haiku)">' + r + '×</div>';
   }
 
+  // Turn a wire model id into the human name the VS Code panel shows:
+  //   claude-opus-5[1m]           -> "Opus 5 with 1M context"
+  //   claude-haiku-4-5-20251001   -> "Haiku 4.5"
+  //   opus                        -> "Opus"
+  // Version parts join with a dot, an 8-digit dated snapshot is dropped, and "[1m]" becomes the
+  // spelled-out context note. This is what keeps the picker honest: the host ships a hardcoded
+  // `label` as a first-run fallback, but once the CLI reports what an alias actually resolved to,
+  // that wins — so a new model release renames the row by itself.
+  function prettyModel(id) {
+    if (!id) return "";
+    let s = String(id).trim();
+    const is1m = /\[1m\]/i.test(s);
+    s = s.replace(/\[1m\]/ig, "").replace(/^claude-/i, "");
+    const parts = s.split("-").filter((x) => x.length && !/^\d{8}$/.test(x));
+    if (!parts.length) return "";
+    const family = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+    const ver = parts.slice(1).filter((x) => /^\d+$/.test(x)).join(".");
+    return family + (ver ? " " + ver : "") + (is1m ? " with 1M context" : "");
+  }
+
   function renderModel() {
     let h = '<h3>Select a model <button class="close-x">×</button></h3>';
     models.forEach((m) => {
-      // Entries are aliases, so the descriptions are version-free. For the selected one append the
-      // id the CLI actually resolved (from the session `init` event) — that tracks new releases by
-      // itself, no rebuild needed. Before the first turn ctx.model is empty and it is simply omitted.
-      const resolved = m.id === cur.model && ctx.model ? " · " + ctx.model : "";
-      h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc((m.desc || "") + resolved) + '</div></div>' + ratioBadge(m.ratio) + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
+      // Row reads "<model> · <what it is for>", matching the VS Code panel. The model half is the
+      // CLI-resolved id when we know it (the selected row, after a session has started), else the
+      // host's fallback label.
+      const label = (m.id === cur.model && ctx.model ? prettyModel(ctx.model) : "") || m.label || "";
+      const line = label ? (m.desc ? label + " · " + m.desc : label) : (m.desc || "");
+      h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(line) + '</div></div>' + ratioBadge(m.ratio) + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
     const isCustom = !!cur.model && !models.some((m) => m.id === cur.model);
-    h += '<div class="opt' + (isCustom ? " sel" : "") + '" data-id="__custom"><div class="obody"><div class="oname">Custom model…</div><div class="odesc">' + (isCustom ? window.md.esc(cur.model) : "Any model id or alias, e.g. claude-fable-5") + '</div></div>' + (isCustom ? '<div class="ochk">✓</div>' : "") + "</div>";
+    // A selected custom id reads the same way as the built-in rows: friendly name, then the id.
+    const customLine = isCustom
+      ? ((prettyModel(cur.model) ? prettyModel(cur.model) + " · " : "") + cur.model)
+      : "Any model id or alias, e.g. claude-fable-5";
+    h += '<div class="opt' + (isCustom ? " sel" : "") + '" data-id="__custom"><div class="obody"><div class="oname">Custom model…</div><div class="odesc">' + window.md.esc(customLine) + '</div></div>' + (isCustom ? '<div class="ochk">✓</div>' : "") + "</div>";
     const ei = Math.max(0, efforts.findIndex((x) => x.id === cur.effort));
     const curName = (efforts[ei] || {}).name || "Off";
     h += '<div class="effort-row"><div class="elabel">' + DUMBBELL + ' Effort <small id="effdesc">(' + window.md.esc(curName + " — " + effortDesc(cur.effort)) + ')</small></div><input type="range" class="effort-slider" id="effslider" min="0" max="' + (efforts.length - 1) + '" value="' + ei + '" /></div>';
@@ -585,7 +612,11 @@
     h += '<div class="note">Type any model id or alias, or pick a known one:</div>';
     h += '<div id="customSuggest">';
     MODEL_SUGGESTIONS.forEach((s) => {
-      h += '<div class="opt" data-id="' + window.md.esc(s.id) + '"><div class="obody"><div class="oname">' + window.md.esc(s.name) + '</div><div class="odesc">' + window.md.esc(s.id) + '</div></div></div>';
+      // Same shape as the main picker: bold model name, then "<what it is for> · <wire id>".
+      // The id stays visible here because this screen is about picking a specific id.
+      const nm = prettyModel(s.id) || s.id;
+      const line = s.desc ? s.desc + " · " + s.id : s.id;
+      h += '<div class="opt" data-id="' + window.md.esc(s.id) + '"><div class="obody"><div class="oname">' + window.md.esc(nm) + '</div><div class="odesc">' + window.md.esc(line) + '</div></div></div>';
     });
     h += "</div>";
     showTop(h);
@@ -601,8 +632,12 @@
         return false;
       }
       // A typed wire name of a built-in entry normalizes to its picker id so per-model
-      // gating (effort range, Auto-mode visibility) applies the same either way.
-      for (const k in MODEL_WIRE) if (MODEL_WIRE[k] === v) { v = k; break; }
+      // gating (effort range, Auto-mode visibility) applies the same either way. An exact
+      // picker id is already normal — check that first, else typing "opus[1m]" would match
+      // MODEL_WIRE.default and land on Default rather than the explicit Opus row.
+      if (!models.some((m) => m.id === v)) {
+        for (const k in MODEL_WIRE) if (MODEL_WIRE[k] === v) { v = k; break; }
+      }
       if (v !== cur.model) { cur.model = v; post("setModel", { model: v }); applyEffortsForModel(); showModelDivider(v); }
       closeTop();
       return true;

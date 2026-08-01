@@ -20,6 +20,14 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
   (e.g. *Compacted · 35.0k → 3.0k tokens*), and the context ring re-baselines off the CLI's
   reported post-compaction size. Automatic compaction (when the window fills) is labelled
   *Auto-compacted* and is now surfaced too, rather than passing silently.
+- **Model picker matches the VS Code panel.** Every row reads `<model> · <what it is for>`
+  ("Opus 5 with 1M context · Best for everyday, complex tasks"), with an explicit
+  **Opus (1M context)** entry alongside Default so Opus can be selected directly.
+- The model name is derived from the id the CLI actually resolved, not a hardcoded string — so
+  when a new Opus ships the row renames itself. The bundled names are only a first-run fallback,
+  which keeps the VS Code look without reintroducing the staleness the alias change removed.
+- The **Custom model** screen uses the same format, showing a friendly name plus the wire id, and
+  typing a built-in id (e.g. `opus[1m]`) now selects that row instead of falling through to Default.
 
 ## [1.0.1] - 2026-07-31
 

@@ -686,6 +686,7 @@ namespace ClaudeCode.VisualStudio
             return new System.Collections.Generic.Dictionary<string, object[]>
             {
                 ["default"] = opus,
+                ["opus[1m]"] = opus,     // explicit Opus row; same range as Default
                 ["fable"] = opus,
                 ["sonnet"] = sonnet,
                 ["haiku"] = haiku,
@@ -702,19 +703,26 @@ namespace ClaudeCode.VisualStudio
                 effort = _effort,
                 permissionMode = _permissionMode,
                 showThinking = _showThinking,
-                // Descriptions stay version-free on purpose: each id is a CLI *alias* that resolves
-                // to the newest model in its family at launch, so hardcoding "Opus 4.8" here would
-                // go stale the day a new Opus ships. The picker shows the id the CLI actually
-                // resolved (reported in the session `init` event) under the selected entry.
+                // Laid out like the VS Code panel: each row reads "<model> · <what it is for>",
+                // with an explicit Opus row alongside Default.
+                //
+                // `label` is only a FALLBACK for the model name. Every id is a CLI alias that
+                // resolves to the newest model in its family at launch, so a hardcoded "Opus 5"
+                // would go stale the day Opus 6 ships. app.js therefore replaces the label with
+                // the id the CLI actually resolved (from the session `init` event) as soon as it
+                // knows it — the label only shows before the first turn of a fresh install.
+                //
+                // ids double as the --model value, so they must stay valid CLI aliases.
                 // ratio = per-token price relative to Haiku (cheapest). Input and
                 // output prices scale by the same factor, so one number covers both:
                 // Haiku $1/$5, Sonnet $3/$15, Opus $5/$25, Fable $10/$50 per MTok.
                 models = new object[]
                 {
-                    new { id = "default", name = "Default (recommended)", desc = "Latest Opus with 1M context · Most capable for complex work", ratio = 5.0 },
-                    new { id = "fable", name = "Fable", desc = "Anthropic's newest, strongest coding model", ratio = 10.0 },
-                    new { id = "sonnet", name = "Sonnet", desc = "Best for everyday tasks", ratio = 3.0 },
-                    new { id = "haiku", name = "Haiku", desc = "Fastest for quick answers", ratio = 1.0 },
+                    new { id = "default",  name = "Default (recommended)", label = "Opus 5 with 1M context", desc = "Best for everyday, complex tasks", ratio = 5.0 },
+                    new { id = "opus[1m]", name = "Opus (1M context)",     label = "Opus 5 with 1M context", desc = "Best for everyday, complex tasks", ratio = 5.0 },
+                    new { id = "fable",    name = "Fable",                 label = "Fable 5",   desc = "Most capable for your hardest and longest-running tasks", ratio = 10.0 },
+                    new { id = "sonnet",   name = "Sonnet",                label = "Sonnet 5",  desc = "Efficient for routine tasks", ratio = 3.0 },
+                    new { id = "haiku",    name = "Haiku",                 label = "Haiku 4.5", desc = "Fastest for quick answers", ratio = 1.0 },
                 },
                 modes = new object[]
                 {
