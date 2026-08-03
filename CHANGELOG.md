@@ -7,6 +7,19 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-08-03
+
+- **Account & Usage matches the VS Code panel.** The dialog now reads the API's new unified
+  `limits` array, so every reported window appears — including per-model ones like
+  **Weekly Fable** — instead of the legacy per-model keys the API no longer populates.
+  Bars turn amber/red when the API reports warning/critical severity.
+- **Extra usage credits.** When pay-as-you-go credits are enabled (or any were spent), a
+  section shows the amount used of the monthly limit with its own bar.
+- **"What's contributing to your limits usage?"** New section mirroring VS Code: a Day/Week
+  toggle over sessions, total tokens, the share of usage at >150k context (with the
+  `/compact` / `/clear` tip), and the share coming from subagents. Approximate, computed
+  from this machine's local session logs only — other devices and claude.ai are not included.
+
 ## [1.0.3] - 2026-08-01
 
 - **Model picker matches the VS Code panel.** Every row reads `<model> · <what it is for>`

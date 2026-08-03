@@ -15,15 +15,28 @@ namespace ClaudeCode.VisualStudio.Services
         public string Organization;
         public string Plan;
         public List<UsageLimitData> Limits = new List<UsageLimitData>();
+        public ExtraUsageData ExtraUsage;
         public string ManageUrl = "https://claude.ai";
         public string Error;
     }
 
     public sealed class UsageLimitData
     {
-        public string Name;       // "Session (5hr)", "Weekly (7 day)"
+        public string Name;       // "Session (5hr)", "Weekly (7 day)", "Weekly Fable"
         public double Percent;    // 0–100
         public string ResetsIn;   // "2h", "5d"
+        public string Severity;   // "normal" | "warning" | "critical" (as reported by the API)
+    }
+
+    /// <summary>Pay-as-you-go credits that kick in past the plan limits ("extra usage").</summary>
+    public sealed class ExtraUsageData
+    {
+        public bool Enabled;
+        public double UsedCredits;   // minor currency units (see DecimalPlaces)
+        public double MonthlyLimit;  // minor currency units
+        public double Utilization;   // 0–100
+        public string Currency = "USD";
+        public int DecimalPlaces = 2;
     }
 
     public static class AccountService
@@ -203,9 +216,15 @@ namespace ClaudeCode.VisualStudio.Services
             Str(el, "plan_name", v => data.Plan = FormatPlanName(v));
         }
 
-        // Parses the api.anthropic.com/api/oauth/usage response:
-        //   { "five_hour": { "utilization": 2, "resets_at": "..." },
-        //     "seven_day": {...}, "seven_day_opus": null, "seven_day_sonnet": {...} }
+        // Parses the api.anthropic.com/api/oauth/usage response. Newer responses carry a
+        // unified "limits" array — the only place per-model windows (e.g. "Weekly Fable")
+        // appear now that the legacy "seven_day_opus"/"seven_day_sonnet" keys are null:
+        //   { "limits": [ { "kind": "session", "percent": 17, "severity": "normal",
+        //                   "resets_at": "...", "scope": null },
+        //                 { "kind": "weekly_scoped", "percent": 2,
+        //                   "scope": { "model": { "display_name": "Fable" } } } ],
+        //     "extra_usage": { "is_enabled": false, "monthly_limit": 4000, ... },
+        //     "five_hour": {...}, "seven_day": {...} }   // legacy fallback keys
         internal static void ParseUsageOAuth(AccountData data, string json)
         {
             try
@@ -213,13 +232,74 @@ namespace ClaudeCode.VisualStudio.Services
                 using (var doc = JsonDocument.Parse(json))
                 {
                     var root = doc.RootElement;
-                    AddWindow(data, root, "five_hour", "Session (5hr)");
-                    AddWindow(data, root, "seven_day", "Weekly (7 day)");
-                    AddWindow(data, root, "seven_day_opus", "Weekly Opus");
-                    AddWindow(data, root, "seven_day_sonnet", "Weekly Sonnet");
+                    if (root.TryGetProperty("limits", out var limits) && limits.ValueKind == JsonValueKind.Array)
+                        foreach (var l in limits.EnumerateArray())
+                            AddLimit(data, l);
+
+                    if (data.Limits.Count == 0)
+                    {
+                        AddWindow(data, root, "five_hour", "Session (5hr)");
+                        AddWindow(data, root, "seven_day", "Weekly (7 day)");
+                        AddWindow(data, root, "seven_day_opus", "Weekly Opus");
+                        AddWindow(data, root, "seven_day_sonnet", "Weekly Sonnet");
+                    }
+
+                    if (root.TryGetProperty("extra_usage", out var extra) && extra.ValueKind == JsonValueKind.Object)
+                        data.ExtraUsage = ParseExtraUsage(extra);
                 }
             }
             catch (Exception ex) { Log.Write("AccountService.ParseUsageOAuth: " + ex.Message); }
+        }
+
+        private static void AddLimit(AccountData data, JsonElement l)
+        {
+            if (l.ValueKind != JsonValueKind.Object) return;
+            string kind = null, scopeName = null;
+            Str(l, "kind", v => kind = v);
+            if (l.TryGetProperty("scope", out var scope) && scope.ValueKind == JsonValueKind.Object &&
+                scope.TryGetProperty("model", out var model) && model.ValueKind == JsonValueKind.Object)
+                Str(model, "display_name", v => scopeName = v);
+
+            var limit = new UsageLimitData { Name = LimitLabel(kind, scopeName) };
+            if (l.TryGetProperty("percent", out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetDouble(out var pct))
+                limit.Percent = pct;
+            if (l.TryGetProperty("resets_at", out var r) && r.ValueKind == JsonValueKind.String)
+                limit.ResetsIn = FormatReset(r.GetString());
+            Str(l, "severity", v => limit.Severity = v);
+            data.Limits.Add(limit);
+        }
+
+        internal static string LimitLabel(string kind, string scopeName)
+        {
+            if (!string.IsNullOrEmpty(scopeName)) return "Weekly " + scopeName;
+            switch (kind)
+            {
+                case "session": return "Session (5hr)";
+                case "weekly_all": return "Weekly (7 day)";
+                case "weekly_scoped": return "Weekly (model)";
+                case null: case "": return "Usage";
+                default:
+                    var ti = System.Globalization.CultureInfo.InvariantCulture.TextInfo;
+                    return ti.ToTitleCase(kind.Replace("_", " "));
+            }
+        }
+
+        private static ExtraUsageData ParseExtraUsage(JsonElement el)
+        {
+            var x = new ExtraUsageData();
+            if (el.TryGetProperty("is_enabled", out var e) &&
+                (e.ValueKind == JsonValueKind.True || e.ValueKind == JsonValueKind.False))
+                x.Enabled = e.GetBoolean();
+            if (el.TryGetProperty("monthly_limit", out var m) && m.ValueKind == JsonValueKind.Number && m.TryGetDouble(out var ml))
+                x.MonthlyLimit = ml;
+            if (el.TryGetProperty("used_credits", out var u) && u.ValueKind == JsonValueKind.Number && u.TryGetDouble(out var uc))
+                x.UsedCredits = uc;
+            if (el.TryGetProperty("utilization", out var ut) && ut.ValueKind == JsonValueKind.Number && ut.TryGetDouble(out var utv))
+                x.Utilization = utv;
+            Str(el, "currency", v => x.Currency = v);
+            if (el.TryGetProperty("decimal_places", out var d) && d.ValueKind == JsonValueKind.Number && d.TryGetInt32(out var dp))
+                x.DecimalPlaces = dp;
+            return x;
         }
 
         private static void AddWindow(AccountData data, JsonElement root, string key, string label)

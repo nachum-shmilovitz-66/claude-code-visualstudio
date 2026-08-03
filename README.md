@@ -1,6 +1,6 @@
 # Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v1.0.3<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
+> **Latest release:** <!-- managed:version -->v1.0.4<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2026, 2022, 2019, and 2017** as a native tool-window chat — the same kind of

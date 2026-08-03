@@ -295,7 +295,11 @@ namespace ClaudeCode.VisualStudio
                 var data = await AccountService.FetchAsync();
                 var limits = new List<object>();
                 foreach (var l in data.Limits)
-                    limits.Add(new { name = l.Name, percent = l.Percent, resetsIn = l.ResetsIn });
+                    limits.Add(new { name = l.Name, percent = l.Percent, resetsIn = l.ResetsIn, severity = l.Severity });
+
+                UsagePeriodInsights day = null, week = null;
+                try { UsageInsightsService.Compute(out day, out week); }
+                catch (Exception ex) { Log.Write("FetchAndSendAccountData insights: " + ex.Message); }
 
                 _host.PostMessage("accountData", new
                 {
@@ -304,6 +308,20 @@ namespace ClaudeCode.VisualStudio
                     organization = data.Organization,
                     plan = data.Plan,
                     limits = limits.ToArray(),
+                    extraUsage = data.ExtraUsage == null ? (object)null : new
+                    {
+                        enabled = data.ExtraUsage.Enabled,
+                        usedCredits = data.ExtraUsage.UsedCredits,
+                        monthlyLimit = data.ExtraUsage.MonthlyLimit,
+                        utilization = data.ExtraUsage.Utilization,
+                        currency = data.ExtraUsage.Currency,
+                        decimalPlaces = data.ExtraUsage.DecimalPlaces,
+                    },
+                    insights = new
+                    {
+                        day = day == null ? (object)null : new { totalTokens = day.TotalTokens, sessions = day.Sessions, pctOver150k = day.PctOver150k, pctSidechain = day.PctSidechain },
+                        week = week == null ? (object)null : new { totalTokens = week.TotalTokens, sessions = week.Sessions, pctOver150k = week.PctOver150k, pctSidechain = week.PctSidechain },
+                    },
                     manageUrl = data.ManageUrl,
                     error = data.Error,
                 });
@@ -697,7 +715,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.3",
+                version = "1.0.4",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,

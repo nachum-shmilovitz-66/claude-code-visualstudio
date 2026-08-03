@@ -126,6 +126,9 @@
     <Compile Include="..\ClaudeCode.VisualStudio\Services\AccountService.cs">
       <Link>Services\AccountService.cs</Link>
     </Compile>
+    <Compile Include="..\ClaudeCode.VisualStudio\Services\UsageInsightsService.cs">
+      <Link>Services\UsageInsightsService.cs</Link>
+    </Compile>
     <Compile Include="..\ClaudeCode.VisualStudio\Services\McpService.cs">
       <Link>Services\McpService.cs</Link>
     </Compile>

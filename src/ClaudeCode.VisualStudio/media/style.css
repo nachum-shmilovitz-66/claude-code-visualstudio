@@ -214,8 +214,17 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .ubar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
 .ufill { height: 100%; background: var(--accent); border-radius: 4px; transition: width .3s; }
 .ureset { color: var(--fg-dim); font-size: 11px; margin-top: 3px; }
+.ufill.warn { background: #d29922; }
+.ufill.crit { background: var(--red); }
 .ulink { color: var(--green); font-size: 12px; text-decoration: none; cursor: pointer; }
 .ulink:hover { text-decoration: underline; }
+
+/* usage insights (Day/Week toggle + callouts) */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin: 2px 0 4px; }
+.seg-btn { background: transparent; border: none; color: var(--fg-dim); font: inherit; font-size: 12px; padding: 3px 12px; cursor: pointer; }
+.seg-btn.on { background: var(--bg-input); color: var(--fg); }
+.insight { margin: 8px 0; font-size: 12px; }
+.insight .note { margin-top: 2px; }
 
 /* selectable rows (model/mode popover) */
 .opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 6px; cursor: pointer; }

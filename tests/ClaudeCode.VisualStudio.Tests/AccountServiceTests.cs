@@ -57,6 +57,48 @@ namespace ClaudeCode.VisualStudio.Tests
         }
 
         [TestMethod]
+        public void ParseUsageOAuth_NewLimitsArray_ScopedModelAndExtraUsage()
+        {
+            var future = DateTimeOffset.UtcNow.AddDays(5).AddMinutes(1).ToString("o");
+            var json = "{\"five_hour\":{\"utilization\":99}," + // ignored: limits[] wins over legacy keys
+                       "\"limits\":[" +
+                       "{\"kind\":\"session\",\"percent\":17,\"severity\":\"normal\",\"resets_at\":\"" + future + "\",\"scope\":null}," +
+                       "{\"kind\":\"weekly_all\",\"percent\":6,\"severity\":\"warning\",\"scope\":null}," +
+                       "{\"kind\":\"weekly_scoped\",\"percent\":2,\"severity\":\"normal\",\"scope\":{\"model\":{\"id\":null,\"display_name\":\"Fable\"}}}]," +
+                       "\"extra_usage\":{\"is_enabled\":true,\"monthly_limit\":4000,\"used_credits\":123.0,\"utilization\":3.1,\"currency\":\"USD\",\"decimal_places\":2}}";
+
+            var data = new AccountData();
+            AccountService.ParseUsageOAuth(data, json);
+
+            Assert.AreEqual(3, data.Limits.Count);
+            Assert.AreEqual("Session (5hr)", data.Limits[0].Name);
+            Assert.AreEqual(17, data.Limits[0].Percent, 0.001);
+            Assert.AreEqual("5d", data.Limits[0].ResetsIn);
+            Assert.AreEqual("Weekly (7 day)", data.Limits[1].Name);
+            Assert.AreEqual("warning", data.Limits[1].Severity);
+            Assert.AreEqual("Weekly Fable", data.Limits[2].Name);
+            Assert.AreEqual(2, data.Limits[2].Percent, 0.001);
+
+            Assert.IsNotNull(data.ExtraUsage);
+            Assert.IsTrue(data.ExtraUsage.Enabled);
+            Assert.AreEqual(4000, data.ExtraUsage.MonthlyLimit, 0.001);
+            Assert.AreEqual(123.0, data.ExtraUsage.UsedCredits, 0.001);
+            Assert.AreEqual(3.1, data.ExtraUsage.Utilization, 0.001);
+            Assert.AreEqual(2, data.ExtraUsage.DecimalPlaces);
+        }
+
+        [TestMethod]
+        public void LimitLabel_KnownKindsAndFallbacks()
+        {
+            Assert.AreEqual("Weekly Fable", AccountService.LimitLabel("weekly_scoped", "Fable"));
+            Assert.AreEqual("Weekly (model)", AccountService.LimitLabel("weekly_scoped", null));
+            Assert.AreEqual("Session (5hr)", AccountService.LimitLabel("session", null));
+            Assert.AreEqual("Weekly (7 day)", AccountService.LimitLabel("weekly_all", null));
+            Assert.AreEqual("Monthly All", AccountService.LimitLabel("monthly_all", null)); // title-cased fallback
+            Assert.AreEqual("Usage", AccountService.LimitLabel(null, null));
+        }
+
+        [TestMethod]
         public void ParseAccountInfo_ExtractsEmailAndOrg()
         {
             var json = "{\"account\":{\"email_address\":\"dev@example.com\"}," +

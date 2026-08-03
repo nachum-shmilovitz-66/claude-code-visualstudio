@@ -81,6 +81,7 @@
     <Compile Include="Services\DebugContextService.cs" />
     <Compile Include="Services\ThemeService.cs" />
     <Compile Include="Services\AccountService.cs" />
+    <Compile Include="Services\UsageInsightsService.cs" />
     <Compile Include="Services\McpService.cs" />
     <Compile Include="Services\SlashCommandService.cs" />
     <Compile Include="Services\SlashCommandCache.cs" />

@@ -649,6 +649,7 @@
     els.popover.querySelectorAll("#customSuggest .opt").forEach((o) =>
       o.addEventListener("click", () => apply(o.dataset.id)));
   }
+  let usagePeriod = "day"; // Day/Week toggle in the "what's contributing" section
   function renderUsage() {
     let h = '<h3>Account &amp; Usage <button class="close-x">×</button></h3>';
 
@@ -667,15 +668,54 @@
         h += '<div class="sec">Usage</div>';
         acct.limits.forEach(function(l) {
           const pct = Math.min(100, Math.max(0, +(l.percent || 0)));
+          const sev = l.severity === "warning" ? " warn"
+            : (l.severity === "critical" || l.severity === "exceeded") ? " crit" : "";
           h += '<div class="uitem">';
           h += '<div class="utitle"><span>' + window.md.esc(l.name || "") + '</span><span>' + Math.round(pct) + "%</span></div>";
-          h += '<div class="ubar"><div class="ufill" style="width:' + pct + '%"></div></div>';
+          h += '<div class="ubar"><div class="ufill' + sev + '" style="width:' + pct + '%"></div></div>';
           if (l.resetsIn) h += '<div class="ureset">Resets in ' + window.md.esc(l.resetsIn) + '</div>';
           h += '</div>';
         });
       }
 
+      const xu = acct.extraUsage;
+      if (xu && (xu.enabled || xu.usedCredits > 0)) {
+        const dp = xu.decimalPlaces == null ? 2 : xu.decimalPlaces;
+        const money = function(minor) {
+          const v = (minor || 0) / Math.pow(10, dp);
+          return (xu.currency === "USD" || !xu.currency ? "$" : xu.currency + " ") + v.toFixed(dp);
+        };
+        const upct = Math.min(100, Math.max(0, +(xu.utilization || 0)));
+        h += '<div class="sec">Extra usage</div>';
+        h += '<div class="uitem">';
+        h += '<div class="utitle"><span>Credits this month</span><span>' + Math.round(upct) + "%</span></div>";
+        h += '<div class="ubar"><div class="ufill" style="width:' + upct + '%"></div></div>';
+        h += '<div class="ureset">' + window.md.esc(money(xu.usedCredits) + " of " + money(xu.monthlyLimit)) +
+             (xu.enabled ? "" : " · off") + '</div>';
+        h += '</div>';
+      }
+
       h += '<div style="margin-top:12px"><a class="ulink" href="#" data-url="' + window.md.esc(acct.manageUrl || "https://claude.ai") + '">Manage usage on claude.ai</a></div>';
+
+      const ins = acct.insights || {};
+      const p = ins[usagePeriod] || ins.day || ins.week;
+      if (p) {
+        h += '<div class="sec" style="margin-top:12px">What’s contributing to your limits usage?</div>';
+        h += '<div class="seg">' +
+             '<button class="seg-btn' + (usagePeriod === "day" ? " on" : "") + '" data-period="day">Day</button>' +
+             '<button class="seg-btn' + (usagePeriod === "week" ? " on" : "") + '" data-period="week">Week</button></div>';
+        h += '<div class="note" style="margin:4px 0 6px">Approximate, based on local sessions on this machine — does not include other devices or claude.ai</div>';
+        h += kv("Sessions", p.sessions);
+        h += kv("Total tokens", (p.totalTokens || 0).toLocaleString());
+        if (p.pctOver150k > 0) {
+          h += '<div class="insight"><b>' + p.pctOver150k + '% of your usage was at &gt;150k context</b>' +
+               '<div class="note">Longer sessions are more expensive even when cached. /compact mid-task, /clear when switching to new tasks.</div></div>';
+        }
+        if (p.pctSidechain > 0) {
+          h += '<div class="insight"><b>' + p.pctSidechain + '% of your usage came from subagents</b>' +
+               '<div class="note">Skills, subagents, and workflows spend tokens in the background on top of the visible chat.</div></div>';
+        }
+      }
     }
 
     h += '<div class="sec" style="margin-top:10px">Session tokens</div>';
@@ -694,6 +734,11 @@
 
     const link = els.popover.querySelector(".ulink");
     if (link) link.addEventListener("click", function(e) { e.preventDefault(); post("openExternal", { url: link.dataset.url }); });
+    els.popover.querySelectorAll(".seg-btn").forEach(function(b) {
+      b.addEventListener("click", function() {
+        if (usagePeriod !== b.dataset.period) { usagePeriod = b.dataset.period; renderUsage(); }
+      });
+    });
   }
   let lastIde = null;
   function mergeContextIde(p) { lastIde = p; if (topOpen === "context") renderContext(); }
