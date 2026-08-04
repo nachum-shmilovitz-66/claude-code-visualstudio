@@ -58,12 +58,32 @@ namespace ClaudeCode.VisualStudio.Services
 
         private sealed class PendingPerm { public object JsonRpcId; public string ControlRequestId; public string OriginalInputJson; }
         private readonly Dictionary<string, PendingPerm> _pendingPerms = new Dictionary<string, PendingPerm>(StringComparer.Ordinal);
+        // Guards _pendingPerms and _pendingModeSwitch: cards are raised on the stdout read loop and
+        // answered from the UI thread (or from a mode switch).
+        private readonly object _permLock = new object();
+
+        // In-flight set_permission_mode control requests: our request_id -> requested mode. The CLI
+        // answers with a control_response; success applies the mode to the *running* process (no
+        // restart), an error tells the caller to fall back to relaunching with the new mode.
+        private readonly Dictionary<string, string> _pendingModeSwitch = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        // The mode the running process is actually in (launch mode, then whatever a successful
+        // set_permission_mode switched it to).
+        private string _liveMode;
 
         // Per-message streaming state: content block index -> kind/tool accumulation.
         private readonly Dictionary<int, BlockState> _blocks = new Dictionary<int, BlockState>();
 
+        // Usage of the most recent API request (see ContextUsageInfo) — the live context size.
+        private ContextUsageInfo _liveUsage;
+
         public string SessionId { get; private set; }
         public bool IsRunning => _process != null && !_process.HasExited;
+
+        // True when this process was launched with --permission-prompt-tool, i.e. it can raise
+        // permission cards. A session launched without it cannot be switched *into* a prompting mode
+        // live — the caller must relaunch instead (see CanSwitchTo).
+        public bool PermissionPromptRegistered { get; private set; }
 
         public event Action<SystemInitInfo> SystemInit;
         public event Action AssistantStart;
@@ -73,7 +93,13 @@ namespace ClaudeCode.VisualStudio.Services
         public event Action<ToolResultInfo> ToolResult;
         public event Action AssistantEnd;
         public event Action<ResultInfo> Result;
+        // Live context size, one per API request in the turn (not cumulative).
+        public event Action<ContextUsageInfo> ContextUsage;
         public event Action<PermissionRequestInfo> PermissionRequest;
+        // A pending permission card was answered by us, not the user (mode switched to Auto).
+        public event Action<string> PermissionAutoAllowed;
+        // The CLI refused a live mode switch; the caller should relaunch with the new mode.
+        public event Action<string> PermissionModeChangeFailed;
         public event Action<CompactInfo> Compacted;
         public event Action<string> ErrorEvent;
         public event Action<int> Exited;
@@ -162,7 +188,67 @@ namespace ClaudeCode.VisualStudio.Services
             _ = Task.Run(() => ReadLoopAsync(_process.StandardOutput));
             _ = Task.Run(() => ErrorLoopAsync(_process.StandardError));
 
+            _liveMode = _options.PermissionMode;
+            PermissionPromptRegistered = PermissionPromptEnabled;
             if (PermissionPromptEnabled) SendInitialize();
+        }
+
+        // Can the running process be moved to `mode` without a relaunch? Every mode except "default"
+        // either needs no prompts (bypassPermissions) or only prompts for tools our launch args
+        // already cover, so the one blocker is switching into a prompting mode in a process that was
+        // started without --permission-prompt-tool.
+        public bool CanSwitchTo(string mode)
+        {
+            if (!IsRunning) return false;
+            return PermissionPromptRegistered || !string.Equals(mode, "default", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Applies a permission mode to the *running* CLI process via the control protocol, so a
+        /// switch takes effect immediately — including mid-turn, which is when users reach for it
+        /// (they flip to Auto precisely because a prompt is on screen). Returns false when the
+        /// switch is not possible; the caller then relaunches. A failure reported later by the CLI
+        /// raises PermissionModeChangeFailed.
+        /// </summary>
+        public bool SetPermissionMode(string mode)
+        {
+            if (string.IsNullOrEmpty(mode) || !CanSwitchTo(mode)) return false;
+            if (string.Equals(mode, _liveMode, StringComparison.Ordinal)) return true;
+
+            var id = "req_mode_" + Interlocked.Increment(ref _controlSeq).ToString(CultureInfo.InvariantCulture);
+            lock (_permLock) { _pendingModeSwitch[id] = mode; }
+
+            var msg = new Dictionary<string, object>
+            {
+                ["type"] = "control_request",
+                ["request_id"] = id,
+                ["request"] = new Dictionary<string, object>
+                {
+                    ["subtype"] = "set_permission_mode",
+                    ["mode"] = mode,
+                },
+            };
+            WriteLine(JsonSerializer.Serialize(msg));
+            return true;
+        }
+
+        // Answers every permission card still on screen with "allow". Only called after the CLI
+        // confirms a switch to bypassPermissions ("Claude runs any tool automatically") — otherwise
+        // the queued prompt would keep the turn blocked in a mode that no longer asks.
+        private void AutoAllowPendingPermissions()
+        {
+            List<PendingPerm> pending;
+            lock (_permLock)
+            {
+                if (_pendingPerms.Count == 0) return;
+                pending = new List<PendingPerm>(_pendingPerms.Values);
+                _pendingPerms.Clear();
+            }
+            foreach (var p in pending)
+            {
+                RespondToMcpPermission(p, "allow", null);
+                PermissionAutoAllowed?.Invoke(p.ControlRequestId);
+            }
         }
 
         // Registers our in-process SDK MCP permission server with the CLI so it can call back for
@@ -295,9 +381,15 @@ namespace ClaudeCode.VisualStudio.Services
         {
             // behavior: "allow" | "deny". The card was raised either from an mcp_message tools/call
             // (our SDK permission server) or, on older paths, a raw can_use_tool control request.
-            if (_pendingPerms.TryGetValue(requestId, out var pending))
+            PendingPerm pending;
+            bool wasPending;
+            lock (_permLock)
             {
-                _pendingPerms.Remove(requestId);
+                wasPending = _pendingPerms.TryGetValue(requestId, out pending);
+                if (wasPending) _pendingPerms.Remove(requestId);
+            }
+            if (wasPending)
+            {
                 RespondToMcpPermission(pending, behavior, message);
                 return;
             }
@@ -404,7 +496,7 @@ namespace ClaudeCode.VisualStudio.Services
                     case "assistant": /* ignored: covered by stream_event */ break;
                     case "result": HandleResult(root); break;
                     case "control_request": HandleControlRequest(root); break;
-                    case "control_response": break;
+                    case "control_response": HandleControlResponse(root); break;
                     case "rate_limit_event": break;
                     default: break;
                 }
@@ -478,11 +570,41 @@ namespace ClaudeCode.VisualStudio.Services
             if (!root.TryGetProperty("event", out var ev)) return;
             var etype = GetString(ev, "type");
 
+            // Sub-agent (Task) turns stream through here too, tagged with parent_tool_use_id. Their
+            // requests carry the sub-agent's own context, which says nothing about ours — usage from
+            // them must not move the ring.
+            bool ownTurn = !root.TryGetProperty("parent_tool_use_id", out var parentId) ||
+                           parentId.ValueKind == JsonValueKind.Null;
+
             switch (etype)
             {
                 case "message_start":
                     _blocks.Clear();
+                    // Per-request usage: the prompt of THIS request is the live context size.
+                    if (ownTurn &&
+                        ev.TryGetProperty("message", out var startMsg) &&
+                        startMsg.TryGetProperty("usage", out var startUsage))
+                    {
+                        _liveUsage = new ContextUsageInfo
+                        {
+                            InputTokens = GetLong(startUsage, "input_tokens"),
+                            CacheReadTokens = GetLong(startUsage, "cache_read_input_tokens"),
+                            CacheCreationTokens = GetLong(startUsage, "cache_creation_input_tokens"),
+                            OutputTokens = GetLong(startUsage, "output_tokens"),
+                        };
+                        ContextUsage?.Invoke(_liveUsage);
+                    }
                     AssistantStart?.Invoke();
+                    break;
+
+                case "message_delta":
+                    // Carries the final output_tokens for the response; add it to the prompt so the
+                    // ring reflects what the NEXT request will carry.
+                    if (ownTurn && _liveUsage != null && ev.TryGetProperty("usage", out var deltaUsage))
+                    {
+                        _liveUsage.OutputTokens = GetLong(deltaUsage, "output_tokens");
+                        ContextUsage?.Invoke(_liveUsage);
+                    }
                     break;
 
                 case "content_block_start":
@@ -607,6 +729,35 @@ namespace ClaudeCode.VisualStudio.Services
             Result?.Invoke(info);
         }
 
+        // Replies to control requests *we* sent. Only set_permission_mode is tracked: success means
+        // the running process is now in that mode, error means it refused and the caller must
+        // relaunch to apply it.
+        private void HandleControlResponse(JsonElement root)
+        {
+            if (!root.TryGetProperty("response", out var resp)) return;
+            var requestId = GetString(resp, "request_id");
+            if (string.IsNullOrEmpty(requestId)) return;
+
+            string mode;
+            lock (_permLock)
+            {
+                if (!_pendingModeSwitch.TryGetValue(requestId, out mode)) return;
+                _pendingModeSwitch.Remove(requestId);
+            }
+
+            if (string.Equals(GetString(resp, "subtype"), "error", StringComparison.Ordinal))
+            {
+                Log.Write("set_permission_mode " + mode + " rejected: " + (GetString(resp, "error") ?? "unknown"));
+                PermissionModeChangeFailed?.Invoke(mode);
+                return;
+            }
+
+            _liveMode = mode;
+            _options.PermissionMode = mode;   // keeps a later relaunch (model/effort change) in sync
+            Log.Write("permission mode switched live to " + mode);
+            if (string.Equals(mode, "bypassPermissions", StringComparison.Ordinal)) AutoAllowPendingPermissions();
+        }
+
         private void HandleControlRequest(JsonElement root)
         {
             // Permission requests (can_use_tool) arrive here when running with
@@ -695,12 +846,15 @@ namespace ClaudeCode.VisualStudio.Services
                     toolName = GetString(args, "tool_name");
                     if (args.TryGetProperty("input", out var inp)) inputJson = inp.GetRawText();
                 }
-                _pendingPerms[controlRequestId] = new PendingPerm
+                lock (_permLock)
                 {
-                    JsonRpcId = rpcId,
-                    ControlRequestId = controlRequestId,
-                    OriginalInputJson = inputJson,
-                };
+                    _pendingPerms[controlRequestId] = new PendingPerm
+                    {
+                        JsonRpcId = rpcId,
+                        ControlRequestId = controlRequestId,
+                        OriginalInputJson = inputJson,
+                    };
+                }
                 PermissionRequest?.Invoke(new PermissionRequestInfo
                 {
                     RequestId = controlRequestId,

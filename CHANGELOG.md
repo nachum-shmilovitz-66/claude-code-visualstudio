@@ -7,6 +7,23 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-08-04
+
+- **Permission mode applies immediately.** Switching mode (e.g. Ask → Auto) used to take effect
+  only when the session relaunched on the *next* message, so a switch made mid-turn — the moment
+  users actually reach for it, with an approval card on screen — kept prompting for the rest of
+  the turn. The new mode is now pushed to the running CLI over the control protocol, and any card
+  still waiting is allowed when switching to Auto. Switching *into* Ask from a session launched
+  without prompting still relaunches, as before.
+- **Context ring reports the real context size.** It was fed by the turn's `result` usage, which
+  is summed over every API request in the turn — each tool round-trip re-reads the cached prefix,
+  so a handful of tool calls could show 154% of a 1M window on a short session. Usage is now read
+  per request from the stream, and sub-agent requests no longer move the ring. Session totals in
+  the Usage dialog stay cumulative, as they should be.
+- **The ring and the Context dialog agree.** The ring measured against a flat 200k window while
+  the dialog fell back to the window the selected model implies, so on a 1M model the ring drew
+  five times the dialog's percentage (110k read as 55%, not 11%). Both share one window helper now.
+
 ## [1.0.4] - 2026-08-03
 
 - **Account & Usage matches the VS Code panel.** The dialog now reads the API's new unified

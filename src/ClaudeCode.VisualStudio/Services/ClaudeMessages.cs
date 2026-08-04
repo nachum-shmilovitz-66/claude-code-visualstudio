@@ -43,6 +43,23 @@ namespace ClaudeCode.VisualStudio.Services
         public string SessionId;
     }
 
+    /// <summary>
+    /// Usage of a SINGLE API request, taken from the stream's `message_start`. The prompt fields
+    /// describe exactly what was in the model's context for that request, which is what the context
+    /// ring wants. The `result` event's usage cannot answer that: it is summed over every request in
+    /// the turn, so a turn with N tool round-trips counts the cached prefix N times and easily
+    /// exceeds the window.
+    /// </summary>
+    public sealed class ContextUsageInfo
+    {
+        public long InputTokens;
+        public long CacheReadTokens;
+        public long CacheCreationTokens;
+        public long OutputTokens;          // of the response being streamed (grows during the turn)
+        public long PromptTokens => InputTokens + CacheReadTokens + CacheCreationTokens;
+        public long TotalTokens => PromptTokens + OutputTokens;
+    }
+
     public sealed class PermissionRequestInfo
     {
         public string RequestId;

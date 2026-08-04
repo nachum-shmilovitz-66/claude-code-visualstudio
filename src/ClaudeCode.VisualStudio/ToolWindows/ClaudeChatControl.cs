@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -167,7 +167,11 @@ namespace ClaudeCode.VisualStudio
                     break;
                 case "setPermissionMode":
                     _permissionMode = InputValidation.SanitizeChoice(GetStr(message.Payload, "mode"), InputValidation.AllowedModes, "default");
-                    _optionsDirty = true;
+                    // Apply to the live process when it can take it — a mode is usually switched
+                    // *because* a prompt is on screen, and waiting for the next turn's relaunch
+                    // would keep asking through the rest of the current one. Otherwise fall back to
+                    // relaunching with the new mode on the next send.
+                    if (_session == null || !_session.SetPermissionMode(_permissionMode)) _optionsDirty = true;
                     SaveOptions();
                     break;
                 case "setEffort":
@@ -715,7 +719,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.4",
+                version = "1.0.5",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -996,6 +1000,16 @@ namespace ClaudeCode.VisualStudio
                 if (r.IsError && r.ToolUseId != null) _editedFiles.Remove(r.ToolUseId);
             };
             s.AssistantEnd += () => _host.PostMessage("assistantEnd", new { });
+            // Real context size, measured per API request. The `result` totals below are cumulative
+            // over the turn and must not drive the ring.
+            s.ContextUsage += u => _host.PostMessage("contextUsage", new
+            {
+                promptTokens = u.PromptTokens,
+                totalTokens = u.TotalTokens,
+                cacheCreationTokens = u.CacheCreationTokens,
+                cacheReadTokens = u.CacheReadTokens,
+                inputTokens = u.InputTokens,
+            });
             s.Result += r =>
             {
                 _host.PostMessage("result", new
@@ -1028,6 +1042,10 @@ namespace ClaudeCode.VisualStudio
                 durationMs = c.DurationMs,
             });
             s.PermissionRequest += p => _host.PostMessage("permission", new { id = p.RequestId, tool = p.ToolName, input = RawJson(p.InputJson) });
+            // Auto mode answered a card that was still on screen: close it out in the transcript.
+            s.PermissionAutoAllowed += id => _host.PostMessage("permissionResolved", new { id, behavior = "allow" });
+            // The CLI refused the live switch — fall back to relaunching with the new mode.
+            s.PermissionModeChangeFailed += m => _optionsDirty = true;
             s.ErrorEvent += m => _host.PostMessage("error", new { message = m });
             s.Exited += code =>
             {

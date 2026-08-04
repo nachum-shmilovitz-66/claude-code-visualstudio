@@ -22,7 +22,9 @@
   let models = [], modes = [], efforts = [], effortsByModel = {};
   let cur = { model: "default", mode: "default", effort: "none" };
   const totals = { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, turns: 0 };
-  const ctx = { used: 0, window: 200000, windowReported: false, model: "", baseline: 0, system: 0 };
+  // `live` = ctx.used came from per-request usage (contextUsage) rather than the cumulative
+  // turn totals in `result`, which overcount and must not win once real numbers are in.
+  const ctx = { used: 0, window: 200000, windowReported: false, model: "", baseline: 0, system: 0, live: false };
   // Post-compaction token count, held across the compaction turn's trailing `result` event.
   let compactPin = 0;
   let topOpen = null, cOpen = null;
@@ -169,9 +171,19 @@
     c.innerHTML = '<div class="ptitle">Allow ' + window.md.esc(p.tool || "tool") + '?</div><div class="pbody"><pre>' + window.md.esc(JSON.stringify(p.input || {}, null, 2)) + '</pre></div><div class="pactions"><button class="allow" data-b="allow">Allow</button><button class="deny" data-b="deny">Deny</button></div>';
     c.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => {
       post("permissionResponse", { id: p.id, behavior: btn.dataset.b });
-      c.classList.add("resolved"); c.querySelector(".pactions").innerHTML = "<em>" + (btn.dataset.b === "deny" ? "Denied" : "Allowed") + "</em>";
+      markPermResolved(c, btn.dataset.b);
     }));
     nd.main.appendChild(c); scrollDown();
+  }
+  function markPermResolved(c, behavior, note) {
+    if (!c || c.classList.contains("resolved")) return;
+    c.classList.add("resolved");
+    const a = c.querySelector(".pactions");
+    if (a) a.innerHTML = "<em>" + (behavior === "deny" ? "Denied" : "Allowed") + (note ? " " + window.md.esc(note) : "") + "</em>";
+  }
+  // The card was answered for us (switching to Auto mode allows whatever is still pending).
+  function resolvePermById(id, behavior, note) {
+    document.querySelectorAll(".perm").forEach((c) => { if (c.dataset.id === id) markPermResolved(c, behavior, note); });
   }
 
   const handlers = {
@@ -214,6 +226,20 @@
     toolUse: (p) => { removeThinking(); renderToolUse(p); },
     toolResult: (p) => renderToolResult(p),
     permission: (p) => { removeThinking(); renderPermission(p); },
+    permissionResolved: (p) => resolvePermById(p.id, p.behavior, "(Auto mode)"),
+    // Live context size, one per API request. Authoritative for the ring — see the `result` handler.
+    contextUsage: (p) => {
+      ctx.used = +(p.totalTokens || p.promptTokens || 0);
+      ctx.live = true;
+      // The cached prefix (system prompt + tools + skills) is written cold on the session's first
+      // request — that write IS the prefix size. Only take the baseline from such a request: on a
+      // resumed session the first request we see reads the whole restored conversation back from
+      // cache, and counting that as "system" would swallow every message into the wrong bucket.
+      if (!ctx.baseline && !(+(p.cacheReadTokens || 0))) ctx.baseline = +(p.cacheCreationTokens || 0);
+      ctx.system = Math.min(ctx.baseline || 0, ctx.used);
+      updateRing();
+      if (topOpen === "context") renderContext();
+    },
     result: (p) => {
       const parts = [];
       if (p.costUsd != null) parts.push("$" + Number(p.costUsd).toFixed(4));
@@ -227,11 +253,14 @@
       // context window usage. A /compact turn ends with a result whose usage still describes the
       // PRE-compaction context, and it arrives after compact_boundary — so honour the post-compact
       // figure the CLI already gave us for this one turn instead of letting it be clobbered.
-      if (compactPin) { ctx.used = compactPin; compactPin = 0; }
-      else ctx.used = (+(p.inputTokens || 0)) + (+(p.cacheReadTokens || 0)) + (+(p.cacheCreationTokens || 0));
+      //
+      // Otherwise the ring is driven by `contextUsage` (per-request), NOT by these totals: this
+      // event's usage is summed over every API request of the turn, so a turn with tool round-trips
+      // counts the cached prefix once per request and races past 100% of the window.
+      if (compactPin) { ctx.used = compactPin; ctx.live = false; compactPin = 0; }
+      else if (!ctx.live) ctx.used = (+(p.inputTokens || 0)) + (+(p.cacheReadTokens || 0)) + (+(p.cacheCreationTokens || 0));
       if (p.contextWindow) { ctx.window = +p.contextWindow; ctx.windowReported = true; }
       if (p.model) ctx.model = p.model;
-      if (!ctx.baseline && p.cacheCreationTokens) ctx.baseline = +p.cacheCreationTokens;
       ctx.system = Math.min(ctx.baseline || 0, ctx.used);
       updateRing();
       if (topOpen === "usage") renderUsage();
@@ -287,7 +316,7 @@
       els.messages.appendChild(n);
       // Re-baseline the ring off what the CLI reports it actually kept, instead of zeroing and
       // waiting for the next turn's result to correct it.
-      ctx.used = post || 0; ctx.baseline = 0; ctx.system = 0;
+      ctx.used = post || 0; ctx.baseline = 0; ctx.system = 0; ctx.live = false;
       compactPin = post || 0;   // survive this turn's trailing `result` (see the result handler)
       updateRing(); scrollDown();
       if (topOpen === "context") renderContext();
@@ -408,8 +437,21 @@
   const DUMBBELL = '<svg class="eicon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="1.5" y="9" width="3" height="6" rx="1"/><rect x="4.7" y="7" width="2.2" height="10" rx="1"/><rect x="6.9" y="10.5" width="10.2" height="3"/><rect x="17.1" y="7" width="2.2" height="10" rx="1"/><rect x="19.5" y="9" width="3" height="6" rx="1"/></svg>';
 
   // ---- context ring ----
+  // The window the ring and the Context dialog both measure against. Until the CLI reports one
+  // (it only does so on a `result`), fall back to what the *selected* model implies — a 1M model
+  // measured against the 200k default made the ring read 5× the dialog's percentage.
+  function ctxWindow() {
+    if (ctx.windowReported && ctx.window) return ctx.window;
+    const shown = ctx.model || own(MODEL_WIRE, cur.model) || cur.model;
+    return /\[1m\]/i.test(shown) ? 1000000 : 200000;
+  }
+  // Picking a different model changes the window (1M Opus -> 200k Sonnet), but the CLI only says
+  // so on the next `result`. Drop the reported value so ctxWindow() follows the new selection
+  // right away instead of measuring against the old model's window for one turn.
+  function onModelSwitched() { ctx.windowReported = false; ctx.model = ""; updateRing(); if (topOpen === "context") renderContext(); }
   function updateRing() {
-    const C = 94.2; const frac = ctx.window ? Math.min(1, ctx.used / ctx.window) : 0;
+    const win = ctxWindow();
+    const C = 94.2; const frac = win ? Math.min(1, ctx.used / win) : 0;
     els.ringFg.style.strokeDashoffset = (C * (1 - frac)).toFixed(1);
     const remain = Math.round((1 - frac) * 100);
     els.ringBtn.title = remain + "% of context remaining until auto-compact. Click to compact now.";
@@ -534,7 +576,10 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
 
   // ---- top popovers ----
-  function resetTotals() { totals.costUsd = 0; totals.inputTokens = 0; totals.outputTokens = 0; totals.cacheReadTokens = 0; totals.cacheCreationTokens = 0; totals.turns = 0; els.usage.textContent = ""; }
+  function resetTotals() {
+    totals.costUsd = 0; totals.inputTokens = 0; totals.outputTokens = 0; totals.cacheReadTokens = 0; totals.cacheCreationTokens = 0; totals.turns = 0; els.usage.textContent = "";
+    ctx.used = 0; ctx.baseline = 0; ctx.system = 0; ctx.live = false; updateRing();
+  }
   function activeTop() { [["model", els.modelBtn], ["context", els.contextBtn], ["usage", els.usageBtn]].forEach(([k, b]) => b.classList.toggle("active", topOpen === k)); }
   function closeTop() { topOpen = null; els.popover.classList.add("hidden"); els.popover.innerHTML = ""; activeTop(); }
   function openTop(which) { closeC(); topOpen = which; activeTop(); if (which === "model") renderModel(); else if (which === "context") { post("getContext"); renderContext(); } else if (which === "usage") { post("getUsage"); renderUsage(); } else if (which === "mcp") { lastMcp = null; post("getMcp"); renderMcp(); } }
@@ -591,7 +636,7 @@
     showTop(h);
     els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => {
       if (o.dataset.id === "__custom") { renderCustomModel(); return; }
-      if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); }
+      if (o.dataset.id !== cur.model) { cur.model = o.dataset.id; post("setModel", { model: cur.model }); applyEffortsForModel(); showModelDivider(cur.model); onModelSwitched(); }
       closeTop();
     }));
     const sl = els.popover.querySelector("#effslider");
@@ -638,7 +683,7 @@
       if (!models.some((m) => m.id === v)) {
         for (const k in MODEL_WIRE) if (MODEL_WIRE[k] === v) { v = k; break; }
       }
-      if (v !== cur.model) { cur.model = v; post("setModel", { model: v }); applyEffortsForModel(); showModelDivider(v); }
+      if (v !== cur.model) { cur.model = v; post("setModel", { model: v }); applyEffortsForModel(); showModelDivider(v); onModelSwitched(); }
       closeTop();
       return true;
     };
@@ -790,8 +835,7 @@
     // Before the first turn the CLI reports no usage, so fall back to the *selected* model
     // (resolved to its wire id) and its expected window instead of a bare "default"/200k.
     const shownModel = ctx.model || own(MODEL_WIRE, cur.model) || cur.model;
-    const is1m = /\[1m\]/i.test(shownModel);
-    const used = ctx.used, win = ctx.windowReported ? (ctx.window || 200000) : (is1m ? 1000000 : 200000), pct = Math.round((used / win) * 100);
+    const used = ctx.used, win = ctxWindow(), pct = Math.round((used / win) * 100);
     const sys = ctx.system || 0, msgs = Math.max(0, used - sys), free = Math.max(0, win - used);
     const seg = (v, c) => '<span style="width:' + (win ? (v / win * 100) : 0) + '%;background:' + c + '"></span>';
     let h = '<h3>Context usage <button class="close-x">×</button></h3>';
