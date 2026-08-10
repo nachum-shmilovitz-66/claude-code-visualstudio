@@ -7,6 +7,42 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-08-10
+
+- **The chat keeps its scroll position across tool-window tab switches.** Docked beside Solution
+  Explorer, fronting the other tab hides the WebView, and a hidden WebView is laid out at zero
+  height — which clamped the transcript's scroll to the top and, worse, looked like the user had
+  scrolled up, so stick-to-bottom was lost too. Coming back always landed at the very beginning of
+  the conversation. The position is now remembered while the view has a real size and re-applied
+  when it returns — repeatedly, until it holds and the content height stops moving, because
+  Visual Studio restores the view over several frames and a single write lands while the content
+  is still short and gets clamped.
+- **The conversation is restored even when the tool window opens before the solution.** The chat is
+  usually restored *before* the solution finishes loading, at which point the working directory is
+  still the user-home fallback. Transcripts are stored per working directory, so the lookup missed —
+  and because it was attempted exactly once, the chat stayed empty for the rest of the session. The
+  restore is retried when a solution or folder finishes opening, against the real project directory.
+  A live session keeps its own directory, so an in-progress conversation is never re-pointed.
+- **Updating the Claude CLI no longer opens a console window.** `claude update` runs in the
+  background with its output captured, and the banner reports progress. A failure or a ten-minute
+  stall is surfaced in the banner with the captured output and a **Run in terminal** button, so a
+  hidden process can never fail silently — that fallback is also the way out if the updater needs
+  interactive input.
+- **The update banner notices when the update finishes, and says so.** Nothing used to watch for
+  the result, so the "update available" banner sat there even after a successful update. Completion
+  is now reported as "Claude CLI updated to `<version>`" rather than the banner silently vanishing,
+  and the confirmation retires itself after 30 seconds — counting only while the chat is actually
+  on screen, so an update that lands behind another tab still gets read. A newly-available update
+  always outranks a pending countdown.
+- **Re-check reports its result.** It used to re-render an identical banner, which read as the
+  button doing nothing. It now shows "checking…", and when nothing has changed it says so and notes
+  that a running Claude session can hold the binary open and delay the swap. The npm "latest" lookup
+  is also cached for the lifetime of the process, so an explicit re-check now clears that cache
+  instead of re-reporting the old answer.
+- **Diagnostics for the WebView UI.** Release builds ship without DevTools, which made layout and
+  setup problems invisible from the outside. Visibility, size and scroll transitions, and the
+  installed/latest/outdated verdict, are logged to `%LOCALAPPDATA%\ClaudeCodeVS\session.log`.
+
 ## [1.0.5] - 2026-08-04
 
 - **Permission mode applies immediately.** Switching mode (e.g. Ask → Auto) used to take effect

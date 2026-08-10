@@ -41,6 +41,9 @@ namespace ClaudeCode.VisualStudio
         private List<string> _mcpServers = new List<string>();
         private SessionRecord _record;        // persisted transcript for the current cwd
         private string _pendingResumeId;      // CLI session id to --resume on next start (restore)
+        private bool _solutionHooked;         // subscribed to solution-load events (restore retry)
+        private bool _updateWatchRunning;     // polling for a `claude update` to land
+        private bool _updateRunning;          // a background `claude update` process is in flight
 
         // Working directory for claude. Defaults to the user profile and is upgraded to the
         // solution directory once known. Cached so the send path never blocks on VS services.
@@ -60,7 +63,7 @@ namespace ClaudeCode.VisualStudio
             _theme.ThemeChanged += vars => _host.PostMessage("theme", vars);
 
             Loaded += OnLoaded;
-            Unloaded += (s, e) => _session?.Dispose();
+            Unloaded += (s, e) => { UnhookSolutionLoad(); _session?.Dispose(); };
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD100:Avoid async void methods", Justification = "Event handler")]
@@ -151,6 +154,15 @@ namespace ClaudeCode.VisualStudio
                 case "ready":
                     SendInit();
                     break;
+                case "diag":
+                    // Layout/scroll breadcrumbs from the page. Release builds ship without
+                    // DevTools, so this is the only window into WebView-side behaviour. The
+                    // page sends numbers only; cap the length so it can't be used to bulk-write.
+                    {
+                        var t = GetStr(message.Payload, "text") ?? string.Empty;
+                        Log.Write("web: " + (t.Length > 200 ? t.Substring(0, 200) : t));
+                    }
+                    break;
                 case "send":
                     HandleSend(message.Payload);
                     break;
@@ -210,8 +222,13 @@ namespace ClaudeCode.VisualStudio
                 case "updateCli":
                     LaunchCliUpdate();
                     break;
+                case "updateCliInTerminal":
+                    LaunchCliUpdateInTerminal();
+                    break;
                 case "recheckSetup":
-                    SendSetupStatus();
+                    // An explicit user re-check must mean "ask everything again" — including the
+                    // npm "latest", which is otherwise cached for the lifetime of the process.
+                    SendSetupStatus(forceRefresh: true);
                     break;
                 case "pickImage":
                     PickImage();
@@ -476,12 +493,13 @@ namespace ClaudeCode.VisualStudio
         // *installed* version each time, so the outdated warning clears as soon as the user updates.
         private static string _cachedLatestCli;
 
-        private void SendSetupStatus()
+        private void SendSetupStatus(bool forceRefresh = false)
         {
             _ = System.Threading.Tasks.Task.Run(() =>
             {
                 try
                 {
+                    if (forceRefresh) _cachedLatestCli = null;
                     bool cliFound = ClaudeCliLocator.IsInstalled();
                     bool loggedIn = cliFound && AccountService.HasStoredToken();
                     // npm presence decides whether the banner offers a one-click "Install CLI"
@@ -499,6 +517,9 @@ namespace ClaudeCode.VisualStudio
                         cliVersion = GetInstalledCliVersion();
                         latestCliVersion = GetLatestCliVersion();
                         cliOutdated = IsCliOutdated(cliVersion, latestCliVersion);
+                        Log.Write("setup: cli=" + (cliVersion ?? "?") + " latest=" +
+                                  (latestCliVersion ?? "?") + " outdated=" + cliOutdated +
+                                  (forceRefresh ? " (forced)" : ""));
                     }
 
                     _host.PostMessage("setup", new
@@ -644,7 +665,110 @@ namespace ClaudeCode.VisualStudio
         // the version the extension uses. Native self-update needs neither npm nor node.
         // Runs in a VISIBLE terminal (same consent model as install). The target is the located
         // CLI path (filesystem, never webview input), so there is no injection surface.
+        private const int UpdateTimeoutMs = 10 * 60 * 1000;
+
+        /// <summary>
+        /// Runs <c>claude update</c> without a console window, reporting progress in the banner.
+        /// <para>
+        /// The visible terminal used to be the only sign the update had done anything, so it earned
+        /// its place; now that completion is detected and confirmed in the UI, the window is just a
+        /// leftover to close (<c>cmd /k</c> deliberately stays open). Output is captured instead —
+        /// but a hidden process that fails or stalls must never be silent, so a non-zero exit or a
+        /// timeout surfaces the output in the banner with a "Run in terminal" escape hatch, which
+        /// is also the way out if the updater ever needs interactive input.
+        /// </para>
+        /// </summary>
         private void LaunchCliUpdate()
+        {
+            if (_updateRunning) { Log.Write("LaunchCliUpdate: already running"); return; }
+            _updateRunning = true;
+
+            _host.PostMessage("cliUpdate", new { state = "running" });
+            WatchForCliUpdate();   // safety net: catches a swap that lands after the process exits
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                string before = GetInstalledCliVersion();
+                string output = string.Empty;
+                int exit = -1;
+                bool timedOut = false;
+
+                try
+                {
+                    // Same launcher resolution the extension uses everywhere else, so the binary
+                    // that gets updated is the one the chat actually runs (npm shim included).
+                    var cli = ClaudeCliLocator.Locate();
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = cli.FileName,
+                        Arguments = cli.ArgumentPrefix + "update",
+                        WorkingDirectory = string.IsNullOrEmpty(_cwd) ? Environment.CurrentDirectory : _cwd,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                    };
+
+                    Log.Write("cli update (background): " + cli.ResolvedPath);
+                    using (var p = System.Diagnostics.Process.Start(psi))
+                    {
+                        if (p == null) throw new InvalidOperationException("process did not start");
+
+                        // Read both pipes before waiting: a full stderr buffer would deadlock us.
+                        var stdout = p.StandardOutput.ReadToEndAsync();
+                        var stderr = p.StandardError.ReadToEndAsync();
+
+                        if (!p.WaitForExit(UpdateTimeoutMs))
+                        {
+                            timedOut = true;
+                            try { p.Kill(); } catch { }
+                        }
+                        else
+                        {
+                            exit = p.ExitCode;
+                        }
+
+                        output = ((await stdout.ConfigureAwait(false) ?? string.Empty) + "\n" +
+                                  (await stderr.ConfigureAwait(false) ?? string.Empty)).Trim();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    output = ex.Message;
+                    Log.Write("LaunchCliUpdate: " + ex.Message);
+                }
+                finally { _updateRunning = false; }
+
+                if (timedOut || exit != 0)
+                {
+                    Log.Write("cli update FAILED exit=" + (timedOut ? "timeout" : exit.ToString()));
+                    _host.PostMessage("cliUpdate", new
+                    {
+                        state = "failed",
+                        detail = timedOut
+                            ? "Timed out after 10 minutes."
+                            : Tail(output, 400),
+                    });
+                    return;
+                }
+
+                string after = GetInstalledCliVersion();
+                Log.Write("cli update ok: " + (before ?? "?") + " -> " + (after ?? "?"));
+
+                // Report the outcome directly rather than relying on the status message racing it.
+                _host.PostMessage("cliUpdate", new
+                {
+                    state = "done",
+                    version = after,
+                    changed = !string.IsNullOrEmpty(after) && after != before,
+                });
+                SendSetupStatus(forceRefresh: true);
+            });
+        }
+
+        // The original visible-terminal path, kept as the escape hatch offered when the background
+        // update fails — some failures (auth, a prompt) are only resolvable interactively.
+        private void LaunchCliUpdateInTerminal()
         {
             try
             {
@@ -660,8 +784,59 @@ namespace ClaudeCode.VisualStudio
                     UseShellExecute = true,
                 };
                 System.Diagnostics.Process.Start(psi);
+                WatchForCliUpdate();
             }
-            catch (Exception ex) { Log.Write("LaunchCliUpdate: " + ex.Message); }
+            catch (Exception ex) { Log.Write("LaunchCliUpdateInTerminal: " + ex.Message); }
+        }
+
+        private static string Tail(string s, int max)
+        {
+            if (string.IsNullOrEmpty(s)) return string.Empty;
+            s = s.Trim();
+            return s.Length <= max ? s : "…" + s.Substring(s.Length - max);
+        }
+
+        /// <summary>
+        /// Notice when the update actually lands and refresh the banner by itself.
+        /// <para>
+        /// The updater runs in a detached <c>cmd /k</c> window, which stays open after the command
+        /// finishes, so process exit says nothing about when the update completed — and nothing
+        /// else was watching, which left the "update available" banner up even after a successful
+        /// update. Poll the version the banner itself reports (<c>claude --version</c>) and push a
+        /// fresh status the moment it moves.
+        /// </para>
+        /// </summary>
+        private void WatchForCliUpdate()
+        {
+            if (_updateWatchRunning) return;
+            _updateWatchRunning = true;
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    string before = GetInstalledCliVersion();
+                    Log.Write("update watch: started at " + (before ?? "?"));
+
+                    // ~5 minutes. A native self-update is usually seconds, but it can queue behind
+                    // a download, and the binary cannot be replaced while a claude session holds
+                    // it open — so give a slow swap room to happen rather than giving up early.
+                    for (int i = 0; i < 60; i++)
+                    {
+                        await System.Threading.Tasks.Task.Delay(5000).ConfigureAwait(false);
+
+                        string now = GetInstalledCliVersion();
+                        if (string.IsNullOrEmpty(now) || now == before) continue;
+
+                        Log.Write("update watch: " + (before ?? "?") + " -> " + now);
+                        SendSetupStatus(forceRefresh: true);
+                        return;
+                    }
+                    Log.Write("update watch: gave up, still at " + (before ?? "?"));
+                }
+                catch (Exception ex) { Log.Write("WatchForCliUpdate: " + ex.Message); }
+                finally { _updateWatchRunning = false; }
+            });
         }
 
         // Opens an interactive `claude` session in a console at the working dir. Used for the
@@ -719,7 +894,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.5",
+                version = "1.0.6",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -772,30 +947,116 @@ namespace ClaudeCode.VisualStudio
                     SendSetupStatus();
 
                     // Restore the prior options (and conversation, if any) for this working dir.
-                    if (_record == null)
-                    {
-                        var rec = SessionStore.Load(_cwd);
-                        if (rec != null)
-                        {
-                            bool hasMsgs = rec.Messages != null && rec.Messages.Count > 0;
-                            _record = rec;
-                            if (hasMsgs && !string.IsNullOrEmpty(rec.SessionId)) _pendingResumeId = rec.SessionId;
-                            _model = InputValidation.SanitizeModel(rec.Model, "default");
-                            _permissionMode = InputValidation.SanitizeChoice(rec.Mode, InputValidation.AllowedModes, "default");
-                            _effort = InputValidation.SanitizeChoice(rec.Effort, InputValidation.AllowedEfforts, "none");
-                            _showThinking = rec.ShowThinking;
-                            _host.PostMessage("restore", new
-                            {
-                                messages = hasMsgs ? rec.Messages : new System.Collections.Generic.List<StoredMessage>(),
-                                model = _model,
-                                mode = _permissionMode,
-                                effort = _effort,
-                                showThinking = _showThinking,
-                            });
-                        }
-                    }
+                    TryRestoreForCwd();
+
+                    // The tool window is typically restored — docked next to Solution Explorer —
+                    // before the solution finishes opening, so the cwd above is often still the
+                    // user-home fallback and the lookup above missed. Watch for the solution
+                    // landing and try again against the real project directory.
+                    HookSolutionLoad();
                 }
                 catch { }
+            }).FireAndForget();
+        }
+
+        /// <summary>
+        /// Load this working directory's persisted transcript and push it to the UI. No-op once a
+        /// record is in hand or a live session owns the transcript, so it is safe to call again
+        /// when the working directory is re-resolved.
+        /// </summary>
+        private void TryRestoreForCwd()
+        {
+            if (_record != null || _session != null) return;
+
+            var rec = SessionStore.Load(_cwd);
+            if (rec == null)
+            {
+                Log.Write("restore: no stored session for cwd=" + _cwd);
+                return;
+            }
+
+            bool hasMsgs = rec.Messages != null && rec.Messages.Count > 0;
+            _record = rec;
+            if (hasMsgs && !string.IsNullOrEmpty(rec.SessionId)) _pendingResumeId = rec.SessionId;
+            _model = InputValidation.SanitizeModel(rec.Model, "default");
+            _permissionMode = InputValidation.SanitizeChoice(rec.Mode, InputValidation.AllowedModes, "default");
+            _effort = InputValidation.SanitizeChoice(rec.Effort, InputValidation.AllowedEfforts, "none");
+            _showThinking = rec.ShowThinking;
+            Log.Write("restore: " + (hasMsgs ? rec.Messages.Count : 0) + " message(s) for cwd=" + _cwd);
+            _host.PostMessage("restore", new
+            {
+                messages = hasMsgs ? rec.Messages : new System.Collections.Generic.List<StoredMessage>(),
+                model = _model,
+                mode = _permissionMode,
+                effort = _effort,
+                showThinking = _showThinking,
+            });
+        }
+
+        /// <summary>
+        /// Subscribe (once) to solution-load events so a transcript that could not be found during
+        /// startup — because no solution was open yet — is restored when one arrives.
+        /// </summary>
+        private void HookSolutionLoad()
+        {
+            if (_solutionHooked) return;
+            _solutionHooked = true;
+            try
+            {
+                VS.Events.SolutionEvents.OnAfterOpenSolution += OnSolutionLoaded;
+                VS.Events.SolutionEvents.OnAfterOpenFolder += OnFolderLoaded;
+            }
+            catch (Exception ex) { Log.Write("HookSolutionLoad failed: " + ex.Message); }
+        }
+
+        private void UnhookSolutionLoad()
+        {
+            if (!_solutionHooked) return;
+            _solutionHooked = false;
+            try
+            {
+                VS.Events.SolutionEvents.OnAfterOpenSolution -= OnSolutionLoaded;
+                VS.Events.SolutionEvents.OnAfterOpenFolder -= OnFolderLoaded;
+            }
+            catch { }
+        }
+
+        private void OnSolutionLoaded(Solution solution) => ReresolveWorkingDirectory();
+
+        private void OnFolderLoaded(string folder) => ReresolveWorkingDirectory();
+
+        /// <summary>
+        /// Re-resolve the working directory after a solution/folder opens and, if it moved,
+        /// re-point the UI at it and retry the transcript restore.
+        /// </summary>
+        private void ReresolveWorkingDirectory()
+        {
+            ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                try
+                {
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                    // claude inherits its cwd at launch and can't be moved afterwards, and the
+                    // transcript is persisted per cwd — so once a session is live, leave it be.
+                    if (_session != null) return;
+
+                    var dir = await GetWorkingDirectoryAsync();
+                    if (string.IsNullOrEmpty(dir) ||
+                        string.Equals(dir, _cwd, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+
+                    Log.Write("cwd re-resolved after solution load: " + _cwd + " -> " + dir);
+                    _cwd = dir;
+                    _host.PostMessage("init", new { cwd = _cwd });
+
+                    // The / palette is cwd-scoped (project .claude/commands), so refresh it too.
+                    SendCommands();
+                    TryRestoreForCwd();
+                }
+                catch (Exception ex) { Log.Write("ReresolveWorkingDirectory failed: " + ex.Message); }
             }).FireAndForget();
         }
 

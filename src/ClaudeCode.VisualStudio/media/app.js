@@ -29,11 +29,19 @@
   let compactPin = 0;
   let topOpen = null, cOpen = null;
   let updateDismissed = false; // user dismissed the "CLI update available" banner this session
+  let updateInFlight = false;  // "Update CLI" clicked; waiting for the installed version to move
+  let recheckPending = false;  // user asked for a re-check — report the outcome, not silence
+  let lastCliVersion = null;   // CLI version from the previous setup message, to spot the change
+  let updatedTo = null;        // new version, once an in-flight update has been confirmed landed
+  let updateError = null;      // a background update failed — never let a hidden process fail quietly
   let inputHistory = [], histIndex = -1, histDraft = ""; // sent-input history; histIndex === -1 = live draft
   let acct = null;
   let thinkingVisible = true;
 
   function post(type, payload) { if (api) api.postMessage({ type: type, payload: payload || {} }); }
+  // Numbers-only breadcrumbs to the host log (%LOCALAPPDATA%\ClaudeCodeVS\session.log) — the
+  // WebView has no DevTools in Release builds, so layout bugs are otherwise unobservable.
+  function diag(text) { post("diag", { text: String(text) }); }
 
   // ---- inbound ----
   function onHostMessage(ev) {
@@ -52,7 +60,68 @@
     const m = els.messages;
     return (m.scrollHeight - m.scrollTop - m.clientHeight) < 40;
   }
-  els.messages.addEventListener("scroll", function () { stickBottom = atBottom(); });
+  // Survive tool-window tab switches. Docked beside Solution Explorer, Claude's WebView is
+  // hidden whenever the other tab is fronted, and a hidden WebView is laid out at zero height —
+  // which clamps #messages' scrollTop to 0 and fires a scroll event on the way. Remember where
+  // the user was while the view still had a real size, and put it back when the size returns.
+  //
+  // Restoring is not a single assignment. Coming back, the page is re-laid out over several
+  // frames, so an early write lands while scrollHeight is still short and gets clamped near the
+  // top — which is exactly what a one-shot restore produced in practice. Keep re-applying until
+  // the target sticks and the content height stops moving.
+  let savedTop = 0;
+  let ignoreScrollUntil = 0;      // scroll events before this are our own layout noise
+  let settling = false;
+  function maxTop() { const m = els.messages; return Math.max(0, m.scrollHeight - m.clientHeight); }
+  els.messages.addEventListener("scroll", function () {
+    const m = els.messages;
+    if (m.clientHeight === 0 || Date.now() < ignoreScrollUntil) return;
+    stickBottom = atBottom();
+    savedTop = m.scrollTop;
+  });
+  function restoreScroll(why) {
+    const m = els.messages;
+    if (settling || m.clientHeight === 0) return;
+    settling = true;
+    let frames = 0, stable = 0, lastHeight = -1;
+    (function apply() {
+      const target = stickBottom ? maxTop() : Math.min(savedTop, maxTop());
+      if (m.scrollTop !== target) m.scrollTop = target;
+      stable = (m.scrollHeight === lastHeight) ? stable + 1 : 0;
+      lastHeight = m.scrollHeight;
+      ignoreScrollUntil = Date.now() + 200;
+      if (stable < 3 && ++frames < 40) { requestAnimationFrame(apply); return; }
+      settling = false;
+      ignoreScrollUntil = 0;
+      diag("restore(" + why + ") frames=" + frames + " top=" + m.scrollTop + " max=" + maxTop() +
+           " h=" + m.clientHeight + " stick=" + stickBottom);
+    })();
+  }
+  document.addEventListener("visibilitychange", function () {
+    const hidden = document.visibilityState === "hidden";
+    diag("visibility=" + document.visibilityState + " h=" + els.messages.clientHeight +
+         " top=" + els.messages.scrollTop + " max=" + maxTop());
+    // Nothing that moves while we are hidden is the user scrolling.
+    if (hidden) { ignoreScrollUntil = Infinity; return; }
+    restoreScroll("show");
+    // An update that completed behind another tab gets its read-time now that it is on screen.
+    if (updatedTo) scheduleUpdatedDismiss();
+  });
+  if (window.ResizeObserver) {
+    let lastHeight = els.messages.clientHeight;
+    new ResizeObserver(function () {
+      const h = els.messages.clientHeight;
+      if (h === lastHeight) return;
+      const wasCollapsed = lastHeight === 0;
+      if (wasCollapsed || h === 0) {
+        diag("resize " + lastHeight + " -> " + h + " top=" + els.messages.scrollTop);
+      }
+      lastHeight = h;
+      // Any regained height re-pins the view: the dock may collapse to a non-zero sliver rather
+      // than exactly 0, so this must not be limited to the 0 -> N transition.
+      if (h > 0) restoreScroll(wasCollapsed ? "expand" : "resize");
+    }).observe(els.messages);
+  }
   function scrollDown(force) { if (force || stickBottom) els.messages.scrollTop = els.messages.scrollHeight; }
   function addMsg(role) {
     const w = document.createElement("div"); w.className = "msg " + role;
@@ -204,6 +273,25 @@
     commands: (p) => { slashCommands = p.commands || []; commandsLoading = false; if (cOpen === "slash") { const q = els.cpop.querySelector("#palq"); filterPalette(q ? q.value : ""); } },
     commandsLoading: (p) => { commandsLoading = !!p.on; if (cOpen === "slash") { const q = els.cpop.querySelector("#palq"); filterPalette(q ? q.value : ""); } },
     setup: (p) => renderSetupBanner(p),
+    // Outcome of a background `claude update`. The host reports it directly rather than leaving
+    // the page to infer it from a version change, so the confirmation can't be lost to a race
+    // between this and the status message that follows.
+    cliUpdate: (p) => {
+      if (p.state === "running") { updateInFlight = true; updateError = null; }
+      else if (p.state === "failed") { updateInFlight = false; updateError = p.detail || "The update failed."; }
+      else if (p.state === "done") {
+        updateInFlight = false; updateError = null;
+        if (p.changed && p.version) {
+          updatedTo = p.version; updateDismissed = false;
+          // The cached status predates the update, so rendering from it would flash the old
+          // "update available" prompt until the refreshed status lands. The host has just told
+          // us what is installed — trust it; the forced status that follows refines the rest.
+          // Copy rather than edit in place: lastSetup aliases a received message payload.
+          lastSetup = Object.assign({}, lastSetup, { cliVersion: p.version, cliOutdated: false });
+        }
+      }
+      renderSetupBanner(lastSetup || {});
+    },
     files: (p) => { fileList = p.files || []; if (cOpen === "at") filterAt(); },
     context: (p) => mergeContextIde(p),
     theme: (p) => applyTheme(p),
@@ -1030,9 +1118,42 @@
   }
 
   // ---- first-run onboarding banner ----
+  // The "updated to X" row is a confirmation, not a task, so it retires itself. The countdown only
+  // runs while the page is actually on screen: the update completes asynchronously, and burning the
+  // timer behind another tool-window tab would put us right back to "never saw it finish".
+  const UPDATED_BANNER_MS = 30000;
+  let updatedTimer = null;
+  let lastSetup = null;
+  function clearUpdatedTimer() { if (updatedTimer) { clearTimeout(updatedTimer); updatedTimer = null; } }
+  function scheduleUpdatedDismiss() {
+    clearUpdatedTimer();
+    if (document.visibilityState === "hidden") return;   // resumes on the visibilitychange below
+    updatedTimer = setTimeout(function () {
+      updatedTimer = null;
+      updatedTo = null;
+      renderSetupBanner(lastSetup || {});   // re-render, so a newly-available update still wins
+    }, UPDATED_BANNER_MS);
+  }
+
   function renderSetupBanner(p) {
     const el = els.setupBanner; if (!el) return;
     p = p || {};
+    lastSetup = p;
+    clearUpdatedTimer();   // every path below re-decides whether a countdown is warranted
+
+    // Track the reported CLI version across status messages so an update that lands can be
+    // reported as *finished*. The updater runs detached in its own terminal, so without this the
+    // banner either sat there unchanged or silently vanished — neither of which tells the user
+    // the update worked.
+    const prevVersion = lastCliVersion;
+    if (p.cliVersion) lastCliVersion = p.cliVersion;
+    if (updateInFlight && prevVersion && p.cliVersion && p.cliVersion !== prevVersion) {
+      updateInFlight = false;
+      updatedTo = p.cliVersion;
+      updateDismissed = false;   // this is news, even if the update prompt was dismissed earlier
+    }
+    const wasRecheck = recheckPending; recheckPending = false;
+
     let html = "";
     if (!p.cliFound) {
       const installBtn = p.npmFound
@@ -1047,8 +1168,28 @@
       html = '<div class="sb-row"><span class="sb-ico">🔑</span><div class="sb-text"><b>Not signed in to Claude.</b> Login is handled by the CLI. Open a terminal and run <code>/login</code>. Claude Code needs a paid <b>Pro/Max</b> plan or API credits — a free account can\'t run it.</div></div>'
            + '<div class="sb-actions"><button class="sb-btn primary" data-act="login">Open terminal to log in</button><button class="sb-btn" data-act="recheck">I\'ve logged in — re-check</button></div>';
     } else if (p.cliOutdated && !updateDismissed) {
-      html = '<div class="sb-row"><span class="sb-ico">⬆</span><div class="sb-text"><b>Claude CLI update available.</b> Installed <code>' + window.md.esc(p.cliVersion || "?") + '</code>, latest <code>' + window.md.esc(p.latestCliVersion || "?") + '</code>. Newer models and fixes ship in CLI updates — an older CLI may not offer the latest models (e.g. the picker can list a model your CLI cannot run yet).<br>Click <b>Update CLI</b>, or run <code>claude update</code> in a terminal.</div></div>'
-           + '<div class="sb-actions"><button class="sb-btn primary" data-act="update">Update CLI</button><button class="sb-btn" data-act="recheck">Re-check</button><button class="sb-btn" data-act="dismiss">Dismiss</button></div>';
+      // A re-check that finds nothing new must still show it ran, otherwise an identical banner
+      // re-render reads as "it didn't even look".
+      const note = updateError
+        ? '<br><b>The update failed.</b> <code>' + window.md.esc(updateError) + '</code><br>Run it in a terminal to see the full output — some failures (a login prompt, for instance) need an interactive session.'
+        : wasRecheck
+          ? '<br><b>Re-checked just now — still on <code>' + window.md.esc(p.cliVersion || "?") + '</code>.</b> The update may not have replaced the binary yet; a running Claude session can hold it open.'
+          : (updateInFlight ? '<br>Updating in the background — this banner reports the result when it finishes.' : '');
+      html = '<div class="sb-row"><span class="sb-ico">' + (updateError ? '⚠' : '⬆') + '</span><div class="sb-text"><b>Claude CLI update available.</b> Installed <code>' + window.md.esc(p.cliVersion || "?") + '</code>, latest <code>' + window.md.esc(p.latestCliVersion || "?") + '</code>. Newer models and fixes ship in CLI updates — an older CLI may not offer the latest models (e.g. the picker can list a model your CLI cannot run yet).' + note + '</div></div>'
+           + '<div class="sb-actions">' + (updateInFlight
+                ? '<button class="sb-btn primary" data-act="update" disabled>updating…</button>'
+                : '<button class="sb-btn primary" data-act="update">' + (updateError ? 'Try again' : 'Update CLI') + '</button>')
+           + (updateError ? '<button class="sb-btn" data-act="terminal">Run in terminal</button>' : '')
+           + '<button class="sb-btn" data-act="recheck">Re-check</button><button class="sb-btn" data-act="dismiss">Dismiss</button></div>';
+    } else if (updatedTo) {
+      html = '<div class="sb-row"><span class="sb-ico">✓</span><div class="sb-text"><b>Claude CLI updated to <code>' + window.md.esc(updatedTo) + '</code>.</b> The new version is picked up on your next message — no restart needed.</div></div>'
+           + '<div class="sb-actions"><button class="sb-btn" data-act="dismissUpdated">Dismiss</button></div>';
+      scheduleUpdatedDismiss();   // it has served its purpose once read; don't make it a chore
+    } else if (updateError) {
+      // The CLI no longer reports as outdated, but the update we ran did fail — say so rather
+      // than letting a background failure vanish.
+      html = '<div class="sb-row"><span class="sb-ico">⚠</span><div class="sb-text"><b>The Claude CLI update failed.</b> <code>' + window.md.esc(updateError) + '</code></div></div>'
+           + '<div class="sb-actions"><button class="sb-btn primary" data-act="update">Try again</button><button class="sb-btn" data-act="terminal">Run in terminal</button><button class="sb-btn" data-act="dismissError">Dismiss</button></div>';
     } else {
       el.classList.add("hidden"); el.innerHTML = ""; return;
     }
@@ -1058,9 +1199,12 @@
       const a = b.dataset.act;
       if (a === "login") post("openClaudeTerminal");
       else if (a === "install") { post("installCli"); b.textContent = "installing… (see terminal)"; b.disabled = true; }
-      else if (a === "update") { post("updateCli"); b.textContent = "updating… (see terminal)"; b.disabled = true; }
+      else if (a === "update") { updateInFlight = true; updateError = null; post("updateCli"); b.textContent = "updating…"; b.disabled = true; }
+      else if (a === "terminal") { updateInFlight = true; updateError = null; post("updateCliInTerminal"); renderSetupBanner(lastSetup || {}); }
+      else if (a === "dismissError") { updateError = null; el.classList.add("hidden"); el.innerHTML = ""; }
       else if (a === "dismiss") { updateDismissed = true; el.classList.add("hidden"); el.innerHTML = ""; }
-      else if (a === "recheck") post("recheckSetup");
+      else if (a === "dismissUpdated") { clearUpdatedTimer(); updatedTo = null; el.classList.add("hidden"); el.innerHTML = ""; }
+      else if (a === "recheck") { recheckPending = true; post("recheckSetup"); b.textContent = "checking…"; b.disabled = true; }
       else if (a === "node") post("openExternal", { url: "https://nodejs.org/en/download" });
       else if (a === "docs") post("openExternal", { url: "https://docs.claude.com/en/docs/claude-code/setup" });
     }));
