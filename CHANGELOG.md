@@ -7,6 +7,17 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-08-11
+
+- **The install-time licence now matches the licence the project publishes.** The agreement shown
+  by the VSIX installer was not the MIT licence in `LICENSE`: it named a different copyright holder
+  ("Claude Code VS"), granted only the right to *use* the extension rather than MIT's copy, modify,
+  distribute, sublicense and sell, dropped MIT's requirement to retain the notice, and shortened the
+  liability clause. Users were therefore accepting materially less than the repository, README badge
+  and marketplace listing all advertise. The installer now shows the MIT licence in full, under the
+  correct copyright holder, after a short preamble covering the unofficial status, the Anthropic
+  trademarks, and the fact that the Claude Code CLI is neither bundled nor covered by this licence.
+
 ## [1.0.7] - 2026-08-11
 
 - **Compact works on a conversation that has no live CLI process.** Compaction is delegated to the
