@@ -894,7 +894,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.6",
+                version = "1.0.7",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -1217,6 +1217,15 @@ namespace ClaudeCode.VisualStudio
                 _pendingResumeId = null;
             }
 
+            // Last resort, from the persisted record itself. ResetSession clears the record, so a
+            // deliberately-new session can never pick a conversation back up here. This keeps the
+            // resolution in step with ResumableSessionId(), which callers use to decide whether
+            // starting the CLI would actually restore a conversation.
+            if (resume == null && !string.IsNullOrEmpty(_record?.SessionId))
+            {
+                resume = _record.SessionId;
+            }
+
             _optionsDirty = false;
 
             var options = new ClaudeSessionOptions
@@ -1464,18 +1473,50 @@ namespace ClaudeCode.VisualStudio
         // a built-in that posts the same "compact" message, and shadows the CLI's own /compact).
         private void HandleCompact()
         {
-            if (_session == null || !_session.IsRunning)
+            // A conversation restored from disk — or one whose process has since exited — has no
+            // live CLI holding it, but its context is still on disk and resumable. Refusing there
+            // was wrong, and worst exactly when compaction is wanted: a long conversation reopened
+            // the next day, ring full, button dead. Start (resuming) the same way a send does, and
+            // keep the refusal only for the case where there is genuinely nothing to compact.
+            bool live = _session != null && _session.IsRunning;
+            if (!live && string.IsNullOrEmpty(ResumableSessionId()))
             {
                 _host.PostMessage("error", new { message = "Nothing to compact yet — send a message first." });
                 return;
             }
+
             _compacting = true;
             _host.PostMessage("status", new { state = "thinking" });
-            _ = System.Threading.Tasks.Task.Run(() =>
+            ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
-                try { _session.SendUserMessage("/compact", null); }
-                catch (Exception ex) { _host.PostMessage("error", new { message = ex.Message }); _compacting = false; }
-            });
+                try
+                {
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    if (!live) Log.Write("compact: no live session, resuming " + ResumableSessionId());
+                    await EnsureWorkingDirectoryAsync();
+                    EnsureSession();
+                    _session.SendUserMessage("/compact", null);
+                }
+                catch (Exception ex)
+                {
+                    _compacting = false;
+                    Log.Write("HandleCompact: " + ex.Message);
+                    _host.PostMessage("error", new { message = ex.Message });
+                    _host.PostMessage("status", new { state = "idle" });
+                }
+            }).FireAndForget();
+        }
+
+        /// <summary>
+        /// The CLI session id a restart would resume, or null when there is nothing to continue.
+        /// Mirrors the order <see cref="EnsureSession"/> resolves it in, so a caller can tell
+        /// whether starting the CLI would actually bring a conversation back with it.
+        /// </summary>
+        private string ResumableSessionId()
+        {
+            if (!string.IsNullOrEmpty(_session?.SessionId)) return _session.SessionId;
+            if (!string.IsNullOrEmpty(_pendingResumeId)) return _pendingResumeId;
+            return _record?.SessionId;
         }
 
         private static string MediaTypeForExt(string ext)

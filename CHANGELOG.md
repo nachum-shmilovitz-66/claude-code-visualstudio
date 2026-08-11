@@ -7,6 +7,16 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-08-11
+
+- **Compact works on a conversation that has no live CLI process.** Compaction is delegated to the
+  CLI's own `/compact` over the running process's stdin, so it refused with "Nothing to compact yet
+  — send a message first" whenever nothing was running — which is the normal state for a transcript
+  restored at startup, or one whose process has since exited. It failed exactly when compaction is
+  most wanted: a long conversation reopened the next day with the context ring full. The context is
+  still on disk and resumable, so compact now starts the CLI with `--resume` the same way sending a
+  message does. The refusal remains only when there is genuinely nothing to continue.
+
 ## [1.0.6] - 2026-08-10
 
 - **The chat keeps its scroll position across tool-window tab switches.** Docked beside Solution
