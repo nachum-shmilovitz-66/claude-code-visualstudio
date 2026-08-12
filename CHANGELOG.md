@@ -7,6 +7,20 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-08-12
+
+- **Edit diffs read like a diff instead of a wall of colour.** The panel used to draw every line of
+  the "before" text in red followed by every line of the "after" text in green, so changing one
+  identifier in a twenty-line edit lit up forty lines and told you nothing about what had moved.
+  Diffs are now computed properly: untouched lines stay as plain context, only genuine changes get
+  a red or green band, and inside a modified line the characters that actually changed are marked.
+  There is a two-column gutter of before/after line numbers and a `+N −M` summary, and long lines
+  scroll sideways rather than wrapping, which used to destroy the column alignment. Line numbers
+  count from the start of the edit rather than the file, since the panel is given the edit and not
+  the file — the diffs are labelled accordingly, and "Open diff" still shows the true before/after.
+- **The About dialog and the panel report the right version.** Both were left at 1.0.8 by the 1.0.9
+  release.
+
 ## [1.0.9] - 2026-08-12
 
 - **The "not signed in" banner clears itself once you log in.** Login is handled by the CLI in a

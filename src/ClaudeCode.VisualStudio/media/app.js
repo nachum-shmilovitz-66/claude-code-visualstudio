@@ -192,23 +192,95 @@
     catch (e) { return ""; }
   }
   function isEditTool(name) { return name === "Edit" || name === "Write" || name === "MultiEdit"; }
-  // Render an edit's hunks as red (removed) / green (added) lines, capped so a whole-file Write
-  // can't flood the transcript.
-  function diffLines(s, cls, sign) {
-    if (s == null || s === "") return "";
-    const lines = String(s).split("\n");
-    const MAX = 300;
-    let h = lines.slice(0, MAX).map((l) => '<div class="dl ' + cls + '">' + sign + window.md.esc(l) + "</div>").join("");
-    if (lines.length > MAX) h += '<div class="dl meta">… ' + (lines.length - MAX) + " more lines</div>";
-    return h;
+  // Render an edit as a VS Code-style unified diff: lines the edit leaves alone stay as plain
+  // context, only what actually changed gets a red/green band, and within a modified line the
+  // changed characters are marked. The old renderer dumped the whole of old_string as removed
+  // followed by the whole of new_string as added, so a one-word change read as a wall of colour.
+  // We only ever get the hunk (old_string/new_string), never the file, so gutter numbers are
+  // hunk-relative for Edit/MultiEdit; Write hands us the whole file, so there they are real.
+  const DIFF_MAX_ROWS = 300;        // rows per hunk before truncating, so a big Write can't flood
+  const LCS_MAX_CELLS = 1200000;    // DP guard — past this, fall back to flat remove-then-add
+  function splitLines(s) { return s == null || s === "" ? [] : String(s).split("\n"); }
+  // Classic LCS, but only over the lines that actually differ: trimming the shared head/tail
+  // first is what keeps it cheap (a one-line change inside a 200-line hunk collapses to 1x1).
+  function lineOps(a, b) {
+    const ops = []; let lo = 0, aHi = a.length, bHi = b.length;
+    while (lo < aHi && lo < bHi && a[lo] === b[lo]) lo++;
+    while (aHi > lo && bHi > lo && a[aHi - 1] === b[bHi - 1]) { aHi--; bHi--; }
+    for (let i = 0; i < lo; i++) ops.push({ t: " ", a: i, b: i });
+    const n = aHi - lo, m = bHi - lo;
+    if (n * m > LCS_MAX_CELLS) {                                                // pathological — don't hang the WebView
+      for (let i = lo; i < aHi; i++) ops.push({ t: "-", a: i, b: -1 });
+      for (let j = lo; j < bHi; j++) ops.push({ t: "+", a: -1, b: j });
+    } else {
+      const w = m + 1, dp = new Int32Array((n + 1) * w);
+      for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+        dp[i * w + j] = a[lo + i] === b[lo + j] ? dp[(i + 1) * w + j + 1] + 1 : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+      let i = 0, j = 0;
+      while (i < n && j < m) {
+        if (a[lo + i] === b[lo + j]) { ops.push({ t: " ", a: lo + i, b: lo + j }); i++; j++; }
+        else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) { ops.push({ t: "-", a: lo + i, b: -1 }); i++; }
+        else { ops.push({ t: "+", a: -1, b: lo + j }); j++; }
+      }
+      while (i < n) { ops.push({ t: "-", a: lo + i, b: -1 }); i++; }
+      while (j < m) { ops.push({ t: "+", a: -1, b: lo + j }); j++; }
+    }
+    for (let k = 0; k < a.length - aHi; k++) ops.push({ t: " ", a: aHi + k, b: bHi + k });
+    return ops;
   }
-  function diffHunk(oldS, newS) { return '<div class="diff">' + diffLines(oldS, "del", "- ") + diffLines(newS, "add", "+ ") + "</div>"; }
+  // Character-level marks for one changed line: trim the shared head/tail and mark the middle.
+  // Lands exactly right on the common case (one renamed identifier); on a line with several
+  // scattered edits it marks the whole span between them, which still beats no marking at all.
+  function charSplit(o, n) {
+    const min = Math.min(o.length, n.length);
+    let s = 0; while (s < min && o[s] === n[s]) s++;
+    let e = 0; while (e < min - s && o[o.length - 1 - e] === n[n.length - 1 - e]) e++;
+    return { s: s, e: e };
+  }
+  // Only mark a pair that is plausibly the same line edited — otherwise two unrelated lines that
+  // happen to be adjacent in a change run light up almost end to end and the marks mean nothing.
+  function pairable(o, n) { const c = charSplit(o, n); return (c.s + c.e) * 3 >= Math.max(o.length, n.length); }
+  function markLine(text, c, cls) {
+    const E = window.md.esc, mid = text.slice(c.s, text.length - c.e);
+    return E(text.slice(0, c.s)) + (mid ? '<span class="dc ' + cls + '">' + E(mid) + "</span>" : "") + E(text.slice(text.length - c.e));
+  }
+  function diffHunk(oldS, newS) {
+    const a = splitLines(oldS), b = splitLines(newS), ops = lineOps(a, b);
+    // Pair the i-th removed line of a change run with its i-th added line, so a modified line
+    // renders as one marked pair rather than two flat bands.
+    const pair = new Map();
+    for (let i = 0; i < ops.length;) {
+      if (ops[i].t === " ") { i++; continue; }
+      let j = i; while (j < ops.length && ops[j].t === "-") j++;
+      let k = j; while (k < ops.length && ops[k].t === "+") k++;
+      for (let d = 0; d < Math.min(j - i, k - j); d++) {
+        const o = a[ops[i + d].a], n = b[ops[j + d].b];
+        if (pairable(o, n)) { const c = charSplit(o, n); pair.set(i + d, c); pair.set(j + d, c); }
+      }
+      i = k;
+    }
+    let rows = "", al = 1, bl = 1, shown = 0, more = 0, adds = 0, dels = 0;
+    for (let idx = 0; idx < ops.length; idx++) {
+      const op = ops[idx], isDel = op.t === "-", isAdd = op.t === "+";
+      if (isAdd) adds++; else if (isDel) dels++;
+      const aNo = isAdd ? "" : al++, bNo = isDel ? "" : bl++;
+      if (shown++ >= DIFF_MAX_ROWS) { more++; continue; }
+      const text = isAdd ? b[op.b] : a[op.a], mark = pair.get(idx);
+      const html = mark ? markLine(text, mark, isDel ? "dcd" : "dca") : window.md.esc(text);
+      rows += '<div class="dr ' + (isDel ? "del" : isAdd ? "add" : "ctx") + '"><span class="dn">' + aNo + '</span><span class="dn">' + bNo +
+        '</span><span class="ds">' + (isDel ? "-" : isAdd ? "+" : " ") + '</span><span class="dt">' + html + "</span></div>";
+    }
+    if (more) rows += '<div class="dr meta"><span class="dn"></span><span class="dn"></span><span class="ds"></span><span class="dt">… ' + more + " more lines</span></div>";
+    return '<div class="diff"><div class="dhead"><span class="dstat add">+' + adds + '</span><span class="dstat del">−' + dels +
+      '</span></div><div class="dbody">' + rows + "</div></div>";
+  }
   function diffBody(input, name) {
-    let body;
+    let body, rel = true;
     if (name === "MultiEdit" && Array.isArray(input.edits)) body = input.edits.map((e) => diffHunk(e.old_string, e.new_string)).join("");
-    else if (name === "Write") body = diffHunk(null, input.content);            // whole-file write → all added; native diff shows true before/after
-    else body = diffHunk(input.old_string, input.new_string);                   // Edit
-    return body + '<button class="open-diff" title="Open the full Before/After diff in Visual Studio">Open diff</button>';
+    else if (name === "Write") { body = diffHunk(null, input.content); rel = false; }  // whole-file write → all added; native diff shows true before/after
+    else body = diffHunk(input.old_string, input.new_string);                          // Edit
+    return (rel ? '<div class="dnote" title="This edit is a hunk, not the whole file, so the gutter counts from the first line shown.">line numbers are relative to the edit</div>' : "") +
+      body + '<button class="open-diff" title="Open the full Before/After diff in Visual Studio">Open diff</button>';
   }
   function renderToolUse(t) {
     const nd = addNode("tool-node", "pending");

@@ -102,12 +102,22 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .tool-body pre { margin: 0; background: var(--code-bg); padding: 8px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Diff & permission */
-.diff { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
-.diff .file { padding: 4px 8px; background: var(--bg-input); color: var(--fg-dim); }
-.diff pre { margin: 0; } .diff .ln { display: block; padding: 0 8px; white-space: pre-wrap; }
-.diff .add { background: var(--diff-add); } .diff .del { background: var(--diff-del); }
-.diff .dl { display: block; padding: 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.diff .dl.meta { color: var(--fg-dim); background: transparent; }
+.diff { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; background: var(--code-bg); }
+.diff .dhead { display: flex; gap: 8px; justify-content: flex-end; padding: 3px 8px; background: var(--bg-input); border-bottom: 1px solid var(--border); font-size: 11px; }
+.diff .dstat.add { color: var(--green); } .diff .dstat.del { color: var(--red); }
+/* Long lines scroll rather than wrap, as they do in the VS diff window — a wrapped code line
+   loses the column alignment that makes a diff readable in the first place. */
+.diff .dbody { overflow-x: auto; }
+.diff .dr { display: flex; white-space: pre; min-width: max-content; }
+.diff .dn { flex: 0 0 auto; width: 32px; padding: 0 4px; text-align: right; color: var(--fg-dim); opacity: .65; user-select: none; }
+.diff .ds { flex: 0 0 auto; width: 14px; text-align: center; color: var(--fg-dim); user-select: none; }
+.diff .dt { flex: 1 1 auto; padding-right: 10px; }
+.diff .dr.add { background: var(--diff-add); } .diff .dr.del { background: var(--diff-del); }
+.diff .dr.meta { color: var(--fg-dim); }
+/* The changed characters inside a modified line, over the line's own band. */
+.diff .dc.dca { background: rgba(78,201,176,.34); border-radius: 2px; }
+.diff .dc.dcd { background: rgba(244,135,113,.34); border-radius: 2px; }
+.dnote { color: var(--fg-dim); font-size: 11px; margin-bottom: 4px; cursor: help; }
 .tool-body .diff + .diff { margin-top: 6px; }
 .open-diff { margin-top: 8px; background: var(--bg-input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
 .open-diff:hover { border-color: var(--fg-dim); }
