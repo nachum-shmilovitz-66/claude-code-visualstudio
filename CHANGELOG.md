@@ -18,6 +18,9 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
   scroll sideways rather than wrapping, which used to destroy the column alignment. Line numbers
   count from the start of the edit rather than the file, since the panel is given the edit and not
   the file — the diffs are labelled accordingly, and "Open diff" still shows the true before/after.
+  The bands also use the editor's diff colours now. They were previously tinted with the panel's
+  `--green` and `--red`, which are the *syntax* colours for a type name and a string — so an
+  addition came out teal and read as "highlighted" rather than "added".
 - **The About dialog and the panel report the right version.** Both were left at 1.0.8 by the 1.0.9
   release.
 
