@@ -106,6 +106,8 @@
     restoreScroll("show");
     // An update that completed behind another tab gets its read-time now that it is on screen.
     if (updatedTo) scheduleUpdatedDismiss();
+    // A login that landed while we were hidden shows up immediately, not on the next tick.
+    if (loginPollTimer) post("recheckSetup");
   });
   if (window.ResizeObserver) {
     let lastHeight = els.messages.clientHeight;
@@ -388,7 +390,7 @@
       endTurn(); scrollDown();
     },
     accountData: (p) => { acct = p; if (topOpen === "usage") renderUsage(); },
-    mcpList: (p) => { lastMcp = p.servers || []; lastMcpError = p.error || null; if (topOpen === "mcp") renderMcp(); },
+    mcpList: (p) => { lastMcp = p.servers || []; lastMcpError = p.error || null; if (topOpen === "mcp") renderMcp(); else if (topOpen === "context") renderContext(); },
     // The CLI compacted its context in place (system/compact_boundary). It emits no assistant
     // text, so all the transcript needs is a divider — with the real before/after token counts
     // from compact_metadata rather than a guess. "auto" means the window filled and the CLI
@@ -670,7 +672,7 @@
   }
   function activeTop() { [["model", els.modelBtn], ["context", els.contextBtn], ["usage", els.usageBtn]].forEach(([k, b]) => b.classList.toggle("active", topOpen === k)); }
   function closeTop() { topOpen = null; els.popover.classList.add("hidden"); els.popover.innerHTML = ""; activeTop(); }
-  function openTop(which) { closeC(); topOpen = which; activeTop(); if (which === "model") renderModel(); else if (which === "context") { post("getContext"); renderContext(); } else if (which === "usage") { post("getUsage"); renderUsage(); } else if (which === "mcp") { lastMcp = null; post("getMcp"); renderMcp(); } }
+  function openTop(which) { closeC(); topOpen = which; activeTop(); if (which === "model") renderModel(); else if (which === "context") { post("getContext"); if (!(lastIde && (lastIde.mcpServers || []).length) && lastMcp == null) post("getMcp"); renderContext(); } else if (which === "usage") { post("getUsage"); renderUsage(); } else if (which === "mcp") { lastMcp = null; post("getMcp"); renderMcp(); } }
   function toggleTop(w) { if (topOpen === w) closeTop(); else openTop(w); }
   function showTop(html) { els.popover.innerHTML = html; els.popover.classList.remove("hidden"); const x = els.popover.querySelector(".close-x"); if (x) x.addEventListener("click", closeTop); }
 
@@ -958,13 +960,27 @@
       h += kv("Project", lastIde.claudeMdProject || "none");
       h += kv("User", lastIde.claudeMdUser || "none");
 
-      // MCP servers from the CLI session. Only shown once the session has
-      // actually reported them — a bare "(0)" before the first message is
-      // misleading (it reads as "no servers" when it just means "not loaded yet").
+      // MCP servers. The CLI only reports its list on the session's first turn, so before a
+      // message has been sent there is nothing to show — and hiding the section outright read
+      // as "this build has no MCP support". Fall back to the configured servers (the same
+      // `claude mcp list` the /mcp screen uses) until the session reports its own.
       const mcp = lastIde.mcpServers || [];
       if (mcp.length) {
         h += '<div class="sec">MCP servers (' + mcp.length + ")</div>";
         h += '<ul class="files">' + mcp.map((x) => "<li>" + window.md.esc(x) + "</li>").join("") + "</ul>";
+      } else if (lastMcp == null) {
+        h += '<div class="sec">MCP servers</div>';
+        h += '<div style="color:var(--fg-dim)">checking…</div>';
+      } else if (lastMcp.length) {
+        h += '<div class="sec">MCP servers (' + lastMcp.length + ")</div>";
+        h += '<ul class="files">' + lastMcp.map((s) =>
+          "<li>" + window.md.esc(s.name || "") +
+          (s.status ? ' <span style="color:var(--fg-dim)">(' + window.md.esc(s.status) + ")</span>" : "") +
+          "</li>").join("") + "</ul>";
+        h += '<div class="note">From your MCP config — the session reports its own list after the first message.</div>';
+      } else {
+        h += '<div class="sec">MCP servers (0)</div>';
+        h += '<div style="color:var(--fg-dim)">none configured</div>';
       }
       const tl = lastIde.tools || [];
       if (tl.length) h += kv("Tools available", tl.length);
@@ -1124,6 +1140,28 @@
   const UPDATED_BANNER_MS = 30000;
   let updatedTimer = null;
   let lastSetup = null;
+
+  // Login happens in a terminal *outside* the IDE, so nothing reports back when it finishes.
+  // Without this the "not signed in" banner just sat there after a successful login and the
+  // only way out was the manual re-check button. Poll while the banner is up instead.
+  // Bounded: someone who has no intention of logging in shouldn't be polled at forever.
+  const LOGIN_POLL_MS = 3000;
+  const LOGIN_POLL_WINDOW_MS = 10 * 60 * 1000;
+  let loginPollTimer = null, loginPollUntil = 0;
+  function stopLoginPoll() {
+    if (loginPollTimer) { clearInterval(loginPollTimer); loginPollTimer = null; }
+    loginPollUntil = 0;
+  }
+  function startLoginPoll(extend) {
+    // Clicking "Open terminal to log in" restarts the clock — the user is acting right now.
+    if (extend || !loginPollUntil) loginPollUntil = Date.now() + LOGIN_POLL_WINDOW_MS;
+    if (loginPollTimer) return;
+    loginPollTimer = setInterval(function () {
+      if (Date.now() > loginPollUntil) { stopLoginPoll(); return; }
+      if (document.visibilityState === "hidden") return;   // behind another tab: nothing to update
+      post("recheckSetup");
+    }, LOGIN_POLL_MS);
+  }
   function clearUpdatedTimer() { if (updatedTimer) { clearTimeout(updatedTimer); updatedTimer = null; } }
   function scheduleUpdatedDismiss() {
     clearUpdatedTimer();
@@ -1153,6 +1191,9 @@
       updateDismissed = false;   // this is news, even if the update prompt was dismissed earlier
     }
     const wasRecheck = recheckPending; recheckPending = false;
+
+    // Set before the branch chain so the all-clear path (which returns early) stops it too.
+    if (p.cliFound && !p.loggedIn) startLoginPoll(false); else stopLoginPoll();
 
     let html = "";
     if (!p.cliFound) {
@@ -1197,7 +1238,7 @@
     el.classList.remove("hidden");
     el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
       const a = b.dataset.act;
-      if (a === "login") post("openClaudeTerminal");
+      if (a === "login") { post("openClaudeTerminal"); startLoginPoll(true); }
       else if (a === "install") { post("installCli"); b.textContent = "installing… (see terminal)"; b.disabled = true; }
       else if (a === "update") { updateInFlight = true; updateError = null; post("updateCli"); b.textContent = "updating…"; b.disabled = true; }
       else if (a === "terminal") { updateInFlight = true; updateError = null; post("updateCliInTerminal"); renderSetupBanner(lastSetup || {}); }

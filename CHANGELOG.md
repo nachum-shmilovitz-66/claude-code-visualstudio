@@ -7,6 +7,22 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-08-12
+
+- **The "not signed in" banner clears itself once you log in.** Login is handled by the CLI in a
+  terminal outside the IDE, so nothing reported back when it finished and the banner simply sat
+  there — the only way out was noticing the manual "I've logged in — re-check" button. The panel
+  now re-checks readiness every few seconds while that banner is up (for up to ten minutes, and
+  only while the tool window is actually visible), and re-checks immediately when you switch back
+  to a tool window that was hidden. Clicking "Open terminal to log in" restarts the window. The
+  manual button stays for anyone who wants it.
+- **The context panel no longer looks like MCP support is missing.** The server list is reported by
+  the CLI on a session's first turn, so on a freshly opened panel there was nothing to show and the
+  whole section was hidden — indistinguishable from "this build has no MCP". It now always renders,
+  falling back to the servers configured in your MCP config (the same `claude mcp list` behind the
+  `/mcp` screen) until the session reports its own, and saying "none configured" when there really
+  are none.
+
 ## [1.0.8] - 2026-08-11
 
 - **The install-time licence now matches the licence the project publishes.** The agreement shown

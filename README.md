@@ -1,6 +1,6 @@
 ﻿# Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v1.0.8<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
+> **Latest release:** <!-- managed:version -->v1.0.9<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2026, 2022, 2019, and 2017** as a native tool-window chat — the same kind of
@@ -18,9 +18,9 @@ to your open solution.
 
 ## Screenshots
 
-<img src="docs/images/hero.png" width="600" alt="Claude Code chat panel docked in Visual Studio">
+<img src="docs/images/hero.png" width="900" alt="Claude Code chat panel docked in Visual Studio beside a native Before/After diff">
 
-*The Claude Code panel docked next to Solution Explorer — ask, and Claude reads and edits your code, with the model, permission mode, and reasoning effort all in the composer.*
+*The Claude Code panel docked on the right — ask, and Claude reads and edits your code. Each edit shows inline in the chat and opens in the native VS Before/After diff, with the model, permission mode, and reasoning effort all in the composer.*
 
 ### Debug-aware: reads your running code to find the root cause
 
@@ -42,7 +42,7 @@ When the debugger is **paused** at a breakpoint or exception, Claude reads the *
 <td><img src="docs/images/permission-mode.png" alt="Permission-mode picker"><br><sub>Ask before edits, edit automatically, plan mode, or full auto — plus a thinking-stream toggle.</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/context.png" alt="Context-window usage"><br><sub>Live context-window breakdown, IDE context, and MCP server health.</sub></td>
+<td><img src="docs/images/context.png" alt="Context-window usage"><br><sub>Live context-window breakdown, IDE context, project memory, and MCP servers.</sub></td>
 <td><img src="docs/images/usage.png" alt="Account and usage limits"><br><sub>Your Claude plan's session and weekly usage, read from the CLI login.</sub></td>
 </tr>
 </table>
@@ -112,10 +112,13 @@ missing, so you're never left at a raw error:
   otherwise a **Get Node.js** link. Then click **Re-check** — a VS restart may be needed so the new
   `claude` is on VS's PATH. (The extension never installs the CLI silently.)
 - **"Not signed in to Claude"** → an **Open terminal to log in** button launches `claude` in a console
-  at your folder; run `/login` there, then click **I've logged in — re-check**. The extension shares
-  the CLI's credentials, so it picks them up immediately.
+  at your folder; run `/login` there. The login happens outside the IDE, so the panel watches for it
+  and clears the banner on its own once the credentials land — there's an **I've logged in — re-check**
+  button too, but you shouldn't need it.
 - Failed turns that look like auth/credit problems surface the same **log in** action and a note that
   Claude Code needs a paid plan.
+
+<img src="docs/images/first-run.png" width="440" alt="First-run banner — not signed in to Claude, with log-in actions">
 
 ---
 
