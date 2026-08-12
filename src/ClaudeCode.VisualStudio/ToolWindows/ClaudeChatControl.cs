@@ -894,7 +894,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.10",
+                version = "1.0.11",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,

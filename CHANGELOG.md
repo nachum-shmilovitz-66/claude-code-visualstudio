@@ -7,6 +7,17 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-08-12
+
+- **Diff bands are readable again, and in colours that mean "added" and "removed".** They were
+  tinted with the panel's `--green` and `--red`, which are the *syntax* colours for a type name and
+  a string, so an addition came out teal and read as "highlighted" rather than "added". Taking the
+  tints straight from VS Code's theme file did not work either: those are translucent
+  (`#347d3926` and the like) and composite over this panel's near-black background to something
+  indistinguishable from it, which made the bands vanish. The diff palette is now its own set of
+  opaque colours, tuned against the panel so a band reads clearly while the text on top stays
+  legible, with a stronger pair marking the characters that changed inside a modified line.
+
 ## [1.0.10] - 2026-08-12
 
 - **Edit diffs read like a diff instead of a wall of colour.** The panel used to draw every line of
@@ -18,9 +29,6 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
   scroll sideways rather than wrapping, which used to destroy the column alignment. Line numbers
   count from the start of the edit rather than the file, since the panel is given the edit and not
   the file — the diffs are labelled accordingly, and "Open diff" still shows the true before/after.
-  The bands also use the editor's diff colours now. They were previously tinted with the panel's
-  `--green` and `--red`, which are the *syntax* colours for a type name and a string — so an
-  addition came out teal and read as "highlighted" rather than "added".
 - **The About dialog and the panel report the right version.** Both were left at 1.0.8 by the 1.0.9
   release.
 
