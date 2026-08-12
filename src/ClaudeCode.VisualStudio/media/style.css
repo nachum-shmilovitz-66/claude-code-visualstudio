@@ -2,14 +2,16 @@
   --bg: #1e1e1e; --bg-alt: #252526; --bg-input: #3c3c3c; --fg: #d4d4d4; --fg-dim: #9d9d9d;
   --accent: #cc7a3b; --accent-fg: #ffffff; --border: #3c3c3c; --code-bg: #1b1b1b;
   --green: #4ec9b0; --red: #f48771; --user-bg: #2d3a4f;
-  /* Diff bands use the VS Code diff-editor palette, not the panel's own --green/--red. Those two
-     are #4EC9B0 teal and #F48771 salmon — they are the editor's *syntax* colours (type name and
-     string), and tinting a diff with them reads as "some highlight" rather than "added/removed".
-     These are the olive/red diffEditor.inserted|removedLineBackground pair instead, with a
-     stronger alpha of the same hue for the changed characters inside a modified line. */
-  --diff-add: rgba(155,185,85,.20); --diff-del: rgba(255,0,0,.20);
-  --diff-add-strong: rgba(155,185,85,.42); --diff-del-strong: rgba(255,0,0,.42);
-  --diff-add-fg: #9bb955; --diff-del-fg: #f14c4c;
+  /* Diff bands use the VS Code diff-editor palette, not the panel's own --green/--red (which are
+     #4EC9B0 and #F48771 — the *syntax* colours for a type name and a string, so a diff tinted with
+     them reads as "highlighted" rather than "added/removed"). Values copied verbatim from the
+     current default dark theme, resources/app/extensions/theme-defaults/themes/2026-dark.json:
+     the line pair is the muted band, the text pair is the stronger mark for the characters that
+     actually changed inside a modified line. Note these are NOT the legacy Dark+ diff colours
+     (olive #9bb955 / pure #ff0000) — that palette is what made this look wrong the first time. */
+  --diff-add: #347d3926; --diff-del: #c93c3726;
+  --diff-add-strong: #57ab5a4d; --diff-del-strong: #f470674d;
+  --diff-add-fg: #57ab5a; --diff-del-fg: #f47067;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", system-ui, sans-serif; font-size: 13px; color: var(--fg); background: var(--bg); }
