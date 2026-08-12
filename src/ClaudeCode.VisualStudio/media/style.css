@@ -2,16 +2,15 @@
   --bg: #1e1e1e; --bg-alt: #252526; --bg-input: #3c3c3c; --fg: #d4d4d4; --fg-dim: #9d9d9d;
   --accent: #cc7a3b; --accent-fg: #ffffff; --border: #3c3c3c; --code-bg: #1b1b1b;
   --green: #4ec9b0; --red: #f48771; --user-bg: #2d3a4f;
-  /* Diff bands use the VS Code diff-editor palette, not the panel's own --green/--red (which are
-     #4EC9B0 and #F48771 — the *syntax* colours for a type name and a string, so a diff tinted with
-     them reads as "highlighted" rather than "added/removed"). Values copied verbatim from the
-     current default dark theme, resources/app/extensions/theme-defaults/themes/2026-dark.json:
-     the line pair is the muted band, the text pair is the stronger mark for the characters that
-     actually changed inside a modified line. Note these are NOT the legacy Dark+ diff colours
-     (olive #9bb955 / pure #ff0000) — that palette is what made this look wrong the first time. */
-  --diff-add: #347d3926; --diff-del: #c93c3726;
-  --diff-add-strong: #57ab5a4d; --diff-del-strong: #f470674d;
-  --diff-add-fg: #57ab5a; --diff-del-fg: #f47067;
+  /* Diff bands, sampled pixel-for-pixel off a VS Code diff so they match what is actually on
+     screen. Opaque on purpose: the theme file's own values are translucent (#347d3926 etc.) and
+     compositing those over this panel's darker background lands far fainter than VS Code looks —
+     that mistake made these bands nearly invisible twice. Do not "restore" them to the theme's
+     alpha values, and do not use --green/--red here, which are the syntax colours for a type name
+     and a string. The -strong pair marks the characters that changed inside a modified line. */
+  --diff-add: #465628; --diff-del: #431515;
+  --diff-add-strong: #578246; --diff-del-strong: #651111;
+  --diff-add-fg: #8cc265; --diff-del-fg: #e06c6c;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", system-ui, sans-serif; font-size: 13px; color: var(--fg); background: var(--bg); }
