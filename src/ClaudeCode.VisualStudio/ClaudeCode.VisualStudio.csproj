@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -74,6 +74,7 @@
     <Compile Include="WebView\WebViewHost.cs" />
     <Compile Include="WebView\WebMessage.cs" />
     <Compile Include="Services\Log.cs" />
+    <Compile Include="Services\Perf.cs" />
     <Compile Include="Services\ClaudeCliLocator.cs" />
     <Compile Include="Services\ClaudeMessages.cs" />
     <Compile Include="Services\ClaudeSession.cs" />

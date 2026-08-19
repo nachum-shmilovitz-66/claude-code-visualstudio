@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   "use strict";
 
   const api = window.chrome && window.chrome.webview;
@@ -28,7 +28,10 @@
   // Post-compaction token count, held across the compaction turn's trailing `result` event.
   let compactPin = 0;
   let topOpen = null, cOpen = null;
-  let updateDismissed = false; // user dismissed the "CLI update available" banner this session
+  // Which "latest" the user dismissed. Dismiss is a snooze, not a mute: the host re-checks
+  // hourly and flags that message as periodic, which clears this — so the reminder comes back
+  // about an hour later. A release that lands in the meantime is new, so it shows straight away.
+  let dismissedVersion = null;
   let updateInFlight = false;  // "Update CLI" clicked; waiting for the installed version to move
   let recheckPending = false;  // user asked for a re-check — report the outcome, not silence
   let lastCliVersion = null;   // CLI version from the previous setup message, to spot the change
@@ -356,7 +359,7 @@
       else if (p.state === "done") {
         updateInFlight = false; updateError = null;
         if (p.changed && p.version) {
-          updatedTo = p.version; updateDismissed = false;
+          updatedTo = p.version; dismissedVersion = null;
           // The cached status predates the update, so rendering from it would flash the old
           // "update available" prompt until the refreshed status lands. The host has just told
           // us what is installed — trust it; the forced status that follows refines the rest.
@@ -1260,9 +1263,13 @@
     if (updateInFlight && prevVersion && p.cliVersion && p.cliVersion !== prevVersion) {
       updateInFlight = false;
       updatedTo = p.cliVersion;
-      updateDismissed = false;   // this is news, even if the update prompt was dismissed earlier
+      dismissedVersion = null;   // this is news, even if the update prompt was dismissed earlier
     }
     const wasRecheck = recheckPending; recheckPending = false;
+
+    // The host's hourly re-check is the reminder: it undoes an earlier dismiss, so an update
+    // the user waved away is put back in front of them roughly an hour later.
+    if (p.periodic) dismissedVersion = null;
 
     // Set before the branch chain so the all-clear path (which returns early) stops it too.
     if (p.cliFound && !p.loggedIn) startLoginPoll(false); else stopLoginPoll();
@@ -1280,7 +1287,7 @@
     } else if (!p.loggedIn) {
       html = '<div class="sb-row"><span class="sb-ico">🔑</span><div class="sb-text"><b>Not signed in to Claude.</b> Login is handled by the CLI. Open a terminal and run <code>/login</code>. Claude Code needs a paid <b>Pro/Max</b> plan or API credits — a free account can\'t run it.</div></div>'
            + '<div class="sb-actions"><button class="sb-btn primary" data-act="login">Open terminal to log in</button><button class="sb-btn" data-act="recheck">I\'ve logged in — re-check</button></div>';
-    } else if (p.cliOutdated && !updateDismissed) {
+    } else if (p.cliOutdated && p.latestCliVersion !== dismissedVersion) {
       // A re-check that finds nothing new must still show it ran, otherwise an identical banner
       // re-render reads as "it didn't even look".
       const note = updateError
@@ -1315,7 +1322,7 @@
       else if (a === "update") { updateInFlight = true; updateError = null; post("updateCli"); b.textContent = "updating…"; b.disabled = true; }
       else if (a === "terminal") { updateInFlight = true; updateError = null; post("updateCliInTerminal"); renderSetupBanner(lastSetup || {}); }
       else if (a === "dismissError") { updateError = null; el.classList.add("hidden"); el.innerHTML = ""; }
-      else if (a === "dismiss") { updateDismissed = true; el.classList.add("hidden"); el.innerHTML = ""; }
+      else if (a === "dismiss") { dismissedVersion = (lastSetup && lastSetup.latestCliVersion) || "*"; el.classList.add("hidden"); el.innerHTML = ""; }
       else if (a === "dismissUpdated") { clearUpdatedTimer(); updatedTo = null; el.classList.add("hidden"); el.innerHTML = ""; }
       else if (a === "recheck") { recheckPending = true; post("recheckSetup"); b.textContent = "checking…"; b.disabled = true; }
       else if (a === "node") post("openExternal", { url: "https://nodejs.org/en/download" });

@@ -44,6 +44,7 @@ namespace ClaudeCode.VisualStudio
         private bool _solutionHooked;         // subscribed to solution-load events (restore retry)
         private bool _updateWatchRunning;     // polling for a `claude update` to land
         private bool _updateRunning;          // a background `claude update` process is in flight
+        private System.Threading.Timer _cliCheckTimer;   // hourly re-check for a newer CLI
 
         // Working directory for claude. Defaults to the user profile and is upgraded to the
         // solution directory once known. Cached so the send path never blocks on VS services.
@@ -51,6 +52,7 @@ namespace ClaudeCode.VisualStudio
 
         public ClaudeChatControl()
         {
+            Perf.Mark("control: ctor");
             _webView = new WebView2
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -63,18 +65,25 @@ namespace ClaudeCode.VisualStudio
             _theme.ThemeChanged += vars => _host.PostMessage("theme", vars);
 
             Loaded += OnLoaded;
-            Unloaded += (s, e) => { UnhookSolutionLoad(); _session?.Dispose(); };
+            Unloaded += (s, e) => { UnhookSolutionLoad(); _cliCheckTimer?.Dispose(); _session?.Dispose(); };
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD100:Avoid async void methods", Justification = "Event handler")]
         private async void OnLoaded(object sender, RoutedEventArgs e)
         {
             Loaded -= OnLoaded;
+            Perf.Mark("control: Loaded");
             try
             {
                 // Pass the current VS theme so the WebView paints in-theme from the first frame
                 // (no white flash before app.js applies colors).
-                await _host.InitializeAsync(_theme.GetThemeVariables());
+                long tTheme = Perf.Now;
+                var themeVars = _theme.GetThemeVariables();
+                Perf.Step("control: GetThemeVariables", tTheme);
+
+                long tHost = Perf.Now;
+                await _host.InitializeAsync(themeVars);
+                Perf.Step("control: host.InitializeAsync total", tHost);
             }
             catch (Microsoft.Web.WebView2.Core.WebView2RuntimeNotFoundException)
             {
@@ -117,7 +126,9 @@ namespace ClaudeCode.VisualStudio
             // Best-effort: upgrade cwd to the solution directory. Never blocks the chat.
             try
             {
+                long tFolders = Perf.Now;
                 var folders = await _ide.GetWorkspaceFoldersAsync();
+                Perf.Step("control: GetWorkspaceFoldersAsync", tFolders);
                 if (folders != null && folders.Count > 0) _cwd = folders[0];
             }
             catch { }
@@ -125,10 +136,16 @@ namespace ClaudeCode.VisualStudio
             // Listen for debugger break events so the chat can surface a live exception/pause.
             try
             {
+                long tDebug = Perf.Now;
                 _debug.Break += OnDebugBreak;
                 await _debug.StartAsync();
+                Perf.Step("control: DebugContextService.StartAsync", tDebug);
             }
             catch { }
+
+            // One consolidated report, written long after everything above has settled — see Perf.
+            // 90s: long enough to still catch the deliberately deferred command refresh below.
+            Perf.FlushSoon(90000);
         }
 
         // The debugger paused (breakpoint / step / thrown exception). Surface it in the
@@ -152,6 +169,9 @@ namespace ClaudeCode.VisualStudio
             switch (message.Type)
             {
                 case "ready":
+                    // The page is up: this is the number that matches "time until the chat
+                    // window is usable", measured from package load.
+                    Perf.Mark("page: ready (webview UI up)");
                     SendInit();
                     break;
                 case "diag":
@@ -438,35 +458,59 @@ namespace ClaudeCode.VisualStudio
             });
         }
 
+        // How long to sit on the slash-command refresh when the cache already answered. Spawning
+        // a claude CLI is ~13s of process work; doing it while the solution is still loading buys
+        // nothing (the palette is already populated) and competes with the IDE coming up.
+        private const int WarmCommandRefreshDelayMs = 30000;
+
         // Fetches the CLI's full slash-command set out-of-band so the / palette shows the
         // complete list (built-ins + project .claude/commands) before the first message
         // starts a session. The live session's system/init refreshes the same "commands"
         // message later. Stale-while-revalidate: a per-cwd cache is shown instantly, then the
         // live fetch refreshes both the UI and the cache. On a cold cache the UI shows a
         // "loading" note for the few seconds the fetch (CLI startup + SessionStart hooks) takes.
-        private void SendCommands()
+        //
+        // cwdResolved: the caller has just settled the working directory, so skip re-asking for
+        // it. That question has to be answered on the UI thread, and during startup the UI thread
+        // is busy — the hop measured 3.1s, which the / palette spent empty for no reason, since
+        // the cache underneath it answers in 6ms.
+        private void SendCommands(int warmRefreshDelayMs = 0, bool cwdResolved = false)
         {
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
                 {
-                    if (_session == null)
+                    if (_session == null && !cwdResolved)
                     {
                         try { var d = await GetWorkingDirectoryAsync(); if (!string.IsNullOrEmpty(d)) _cwd = d; }
                         catch { }
                     }
 
                     // 1) Instant fill from cache, or signal "loading" when the cache is cold.
+                    long tc = Perf.Now;
                     var cached = SlashCommandCache.Load(_cwd);
-                    if (cached != null && cached.Count > 0)
+                    Perf.Step("commands: cache load", tc);
+                    bool warm = cached != null && cached.Count > 0;
+                    if (warm)
                         _host.PostMessage("commands", new { commands = cached });
                     else
                         _host.PostMessage("commandsLoading", new { on = true });
 
+                    // A warm cache means nothing is waiting on the refresh, so let the IDE finish
+                    // starting before spending a CLI process on it. A cold cache is the opposite:
+                    // the palette is showing "loading" until this lands, so it goes out at once.
+                    if (warm && warmRefreshDelayMs > 0)
+                    {
+                        Perf.Mark("commands: refresh deferred " + warmRefreshDelayMs + "ms (warm cache)");
+                        await System.Threading.Tasks.Task.Delay(warmRefreshDelayMs).ConfigureAwait(false);
+                    }
+
                     // 2) Live fetch refreshes the UI + cache (then clears the loading note).
                     try
                     {
+                        long tl = Perf.Now;
                         var commands = await SlashCommandService.ListAsync(_cwd);
+                        Perf.Step("commands: live CLI fetch", tl);
                         if (commands.Count > 0)
                         {
                             SlashCommandCache.Save(_cwd, commands);
@@ -493,18 +537,30 @@ namespace ClaudeCode.VisualStudio
         // *installed* version each time, so the outdated warning clears as soon as the user updates.
         private static string _cachedLatestCli;
 
-        private void SendSetupStatus(bool forceRefresh = false)
+        // How long to hold back the version probe on the load path. `claude --version` is a ~3s
+        // process; the install/login banners it gates do not depend on it, so it can wait until
+        // the IDE is past its startup rush.
+        private const int SetupVersionDelayMs = 5000;
+
+        private void SendSetupStatus(bool forceRefresh = false, bool periodic = false, int versionDelayMs = 0)
         {
-            _ = System.Threading.Tasks.Task.Run(() =>
+            _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
                 {
                     if (forceRefresh) _cachedLatestCli = null;
+                    long t = Perf.Now;
                     bool cliFound = ClaudeCliLocator.IsInstalled();
+                    Perf.Step("setup: ClaudeCliLocator.IsInstalled", t);
+
+                    t = Perf.Now;
                     bool loggedIn = cliFound && AccountService.HasStoredToken();
+                    Perf.Step("setup: HasStoredToken", t);
                     // npm presence decides whether the banner offers a one-click "Install CLI"
                     // (runs npm in a visible terminal) or just a "get Node.js" link.
+                    t = Perf.Now;
                     bool npmFound = !cliFound && IsNpmAvailable();
+                    Perf.Step("setup: IsNpmAvailable", t);
 
                     // Version check is general / future-proof: read the installed version and the
                     // current npm "latest" at runtime, compare numerically — no hardcoded versions.
@@ -512,10 +568,35 @@ namespace ClaudeCode.VisualStudio
                     // banners still post instantly (this does a process + network call).
                     string cliVersion = null, latestCliVersion = null;
                     bool cliOutdated = false;
+
+                    // On the load path, answer the question the user might actually be blocked on
+                    // — is the CLI there, am I logged in — before spending a process on the version.
+                    // Everything below is unchanged; it just happens a few seconds later.
+                    if (cliFound && loggedIn && versionDelayMs > 0)
+                    {
+                        _host.PostMessage("setup", new
+                        {
+                            cliFound = cliFound,
+                            loggedIn = loggedIn,
+                            npmFound = npmFound,
+                            cliVersion = (string)null,
+                            latestCliVersion = (string)null,
+                            cliOutdated = false,
+                            periodic = false,
+                        });
+                        Perf.Mark("setup: version probe deferred " + versionDelayMs + "ms");
+                        await System.Threading.Tasks.Task.Delay(versionDelayMs).ConfigureAwait(false);
+                    }
+
                     if (cliFound && loggedIn)
                     {
+                        t = Perf.Now;
                         cliVersion = GetInstalledCliVersion();
+                        Perf.Step("setup: claude --version (process)", t);
+
+                        t = Perf.Now;
                         latestCliVersion = GetLatestCliVersion();
+                        Perf.Step("setup: npm registry latest (network)", t);
                         cliOutdated = IsCliOutdated(cliVersion, latestCliVersion);
                         Log.Write("setup: cli=" + (cliVersion ?? "?") + " latest=" +
                                   (latestCliVersion ?? "?") + " outdated=" + cliOutdated +
@@ -530,10 +611,55 @@ namespace ClaudeCode.VisualStudio
                         cliVersion = cliVersion,
                         latestCliVersion = latestCliVersion,
                         cliOutdated = cliOutdated,
+                        // Tells the page this is the hourly re-check rather than a load-time or
+                        // user-requested one, which is what lets a dismissed reminder come back.
+                        periodic = periodic,
                     });
+
+                    // Keep checking for the rest of the VS session, not just at startup.
+                    StartPeriodicCliCheck();
                 }
                 catch (Exception ex) { Log.Write("SendSetupStatus: " + ex.Message); }
             });
+        }
+
+        // How often to re-ask, while VS stays open, whether a newer CLI has shipped.
+        private const int CliCheckIntervalMs = 60 * 60 * 1000;   // 1 hour
+
+        /// <summary>
+        /// Re-run the setup/version check every hour for as long as the window lives.
+        /// <para>
+        /// The check used to run once, when the chat window first loaded. VS commonly stays open
+        /// for days, so the banner reported whatever was current the morning the solution was
+        /// opened and never noticed a release that landed afterwards.
+        /// </para>
+        /// <para>
+        /// Deliberately started from the *end* of the first status run - which is already on a
+        /// thread-pool thread - so it adds nothing to the load path: no work happens here beyond
+        /// allocating a timer, and the first tick is an hour away, long after the window is up.
+        /// Each tick then runs on a thread-pool thread as well (<see cref="SendSetupStatus"/> does
+        /// its own <c>Task.Run</c>), so the process + network call never touches the UI thread.
+        /// </para>
+        /// </summary>
+        private void StartPeriodicCliCheck()
+        {
+            if (_cliCheckTimer != null) return;
+
+            var timer = new System.Threading.Timer(_ =>
+            {
+                // An update in flight already has a watcher pushing a fresh status when it lands;
+                // a second check racing it could flip the banner back mid-update.
+                if (_updateRunning || _updateWatchRunning) return;
+
+                Log.Write("cli check: hourly");
+                // Forced: the npm "latest" is cached for the process lifetime, and re-reading the
+                // same cached answer every hour would defeat the point of checking at all.
+                SendSetupStatus(forceRefresh: true, periodic: true);
+            }, null, CliCheckIntervalMs, CliCheckIntervalMs);
+
+            // Two status runs can reach this at once (init racing a re-check); keep the first.
+            if (System.Threading.Interlocked.CompareExchange(ref _cliCheckTimer, timer, null) != null)
+                timer.Dispose();
         }
 
         // Runs `claude --version` and pulls the X.Y.Z it prints (e.g. "2.1.170 (Claude Code)").
@@ -894,7 +1020,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.11",
+                version = "1.0.12",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -935,19 +1061,23 @@ namespace ClaudeCode.VisualStudio
             {
                 try
                 {
+                    long tDir = Perf.Now;
                     var dir = await GetWorkingDirectoryAsync();
+                    Perf.Step("init: GetWorkingDirectoryAsync", tDir);
                     if (!string.IsNullOrEmpty(dir)) { _cwd = dir; _host.PostMessage("init", new { cwd = _cwd }); }
 
                     // Populate the / palette with the full CLI command set up front, now that
                     // cwd is resolved (so project .claude/commands are included) — before the
                     // user sends a first message and the live session would otherwise be needed.
-                    SendCommands();
+                    SendCommands(warmRefreshDelayMs: WarmCommandRefreshDelayMs, cwdResolved: true);
 
                     // First-run readiness (CLI installed? logged in?) drives the onboarding banner.
-                    SendSetupStatus();
+                    SendSetupStatus(versionDelayMs: SetupVersionDelayMs);
 
                     // Restore the prior options (and conversation, if any) for this working dir.
+                    long tRestore = Perf.Now;
                     TryRestoreForCwd();
+                    Perf.Step("init: TryRestoreForCwd (transcript load)", tRestore);
 
                     // The tool window is typically restored — docked next to Solution Explorer —
                     // before the solution finishes opening, so the cwd above is often still the
@@ -1053,7 +1183,8 @@ namespace ClaudeCode.VisualStudio
                     _host.PostMessage("init", new { cwd = _cwd });
 
                     // The / palette is cwd-scoped (project .claude/commands), so refresh it too.
-                    SendCommands();
+                    // Still the startup window — the solution has only just finished loading.
+                    SendCommands(warmRefreshDelayMs: WarmCommandRefreshDelayMs, cwdResolved: true);
                     TryRestoreForCwd();
                 }
                 catch (Exception ex) { Log.Write("ReresolveWorkingDirectory failed: " + ex.Message); }

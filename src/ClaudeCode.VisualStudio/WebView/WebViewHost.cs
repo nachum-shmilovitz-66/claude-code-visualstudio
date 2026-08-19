@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -74,8 +74,15 @@ namespace ClaudeCode.VisualStudio.WebView
 #endif
             Directory.CreateDirectory(userData);
 
+            // By far the biggest single cost of a cold open: creating the environment spins up
+            // the WebView2 runtime and its browser/renderer processes.
+            long t = Services.Perf.Now;
             var env = await CoreWebView2Environment.CreateAsync(null, userData);
+            Services.Perf.Step("webview: CreateAsync (runtime boot)", t);
+
+            t = Services.Perf.Now;
             await _webView.EnsureCoreWebView2Async(env);
+            Services.Perf.Step("webview: EnsureCoreWebView2Async", t);
 
             var core = _webView.CoreWebView2;
             var settings = core.Settings;
@@ -128,6 +135,7 @@ namespace ClaudeCode.VisualStudio.WebView
 
             // Cache-bust the top-level page so HTML changes always load fresh.
             core.Navigate($"https://{VirtualHost}/index.html?cb={Guid.NewGuid():N}");
+            Services.Perf.Mark("webview: navigate issued");
 
             Ready?.Invoke();
         }

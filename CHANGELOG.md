@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to **Claude Code for Visual Studio (Unofficial)** are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/); versions
@@ -6,6 +6,36 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 [GitHub Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases) page.
 
 ## [Unreleased]
+
+## [1.0.12] - 2026-08-19
+
+- **The slash palette fills in three seconds sooner.** Fetching the command list began by asking
+  Visual Studio for the working directory - a question that has to be answered on the UI thread,
+  which during startup is busy. The measured hop was 3.1 seconds, and the palette sat empty for all
+  of it, even though the cache underneath answers in 6 milliseconds. The callers that had just
+  resolved the directory now say so instead of asking again.
+- **The extension stops competing with Visual Studio for the startup.** Load instrumentation showed
+  nothing blocking the UI thread, but two `claude` processes were being launched straight into the
+  middle of the IDE coming up: the version probe (~3s) and the slash-command refresh (~13s), the
+  latter while the palette had *already* been filled from cache 6ms earlier and nothing was waiting
+  on it. The warm-cache refresh now waits 30 seconds, and the version probe 5 seconds - which takes
+  roughly sixteen seconds of process churn out of the startup window. A cold cache still fetches at
+  once, because there the palette really is waiting, and the install / sign-in banners still post
+  immediately, since they never depended on the version.
+- **The CLI update check keeps running while Visual Studio is open.** It used to run once, when the
+  chat window loaded, so a release that shipped while the IDE stayed open - often for days - was
+  never noticed. The same check now repeats every hour. It is started from the tail of the first
+  check, which already runs on a background thread, and its first tick is an hour out, so it adds
+  nothing to the load path; it also stands aside while an update is in flight, leaving that to the
+  watcher already following it.
+- **Dismissing the update reminder snoozes it instead of muting it.** Dismiss used to hide the
+  banner for the rest of the session. It now clears at the next hourly check, so the reminder comes
+  back about an hour later, and a version released in the meantime brings it back straight away.
+- **Load-time instrumentation.** A one-shot report of where the milliseconds go between the package
+  loading and the chat being usable - package init, WebView2 boot, page ready, working directory,
+  transcript restore, the CLI version and slash-command fetches. Marks cost a stopwatch read, and
+  the whole report is written to `session.log` in a single append well after the load, so measuring
+  the load never becomes part of it.
 
 ## [1.0.11] - 2026-08-12
 

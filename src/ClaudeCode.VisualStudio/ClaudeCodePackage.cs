@@ -13,7 +13,7 @@ namespace ClaudeCode.VisualStudio
     /// command that opens it. Loads in the background once the shell is ready.
     /// </summary>
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-    [InstalledProductRegistration("Claude Code", "Agentic coding assistant for Visual Studio.", "1.0.11")]
+    [InstalledProductRegistration("Claude Code", "Agentic coding assistant for Visual Studio.", "1.0.12")]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     // Dock as a tab next to Solution Explorer (its window GUID), instead of a free-floating right pane.
     [ProvideToolWindow(typeof(ClaudeChatToolWindow.Pane), Style = VsDockStyle.Tabbed, Window = "3AE79031-E1BC-11D0-8F78-00A0C9110057")]
@@ -40,9 +40,18 @@ namespace ClaudeCode.VisualStudio
 
         protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
         {
+            // Load-time instrumentation: everything here is on the shell's startup path, so it
+            // is the first thing to look at when VS feels slow to come up. See Services/Perf.
+            long t = Services.Perf.Now;
             await this.RegisterCommandsAsync();
+            Services.Perf.Step("package: RegisterCommandsAsync", t);
+
+            t = Services.Perf.Now;
             this.RegisterToolWindows();
+            Services.Perf.Step("package: RegisterToolWindows", t);
+
             ScheduleFirstRunShow();   // must NOT be awaited — see below
+            Services.Perf.Mark("package: InitializeAsync done");
         }
 
         // Open the chat once, the very first time the extension ever loads on this machine, so a
@@ -77,7 +86,9 @@ namespace ClaudeCode.VisualStudio
                     await JoinableTaskFactory.SwitchToMainThreadAsync();
                     await Task.Yield();
 
+                    long tShow = Services.Perf.Now;
                     await ClaudeChatToolWindow.ShowAsync();
+                    Services.Perf.Step("package: first-run ShowAsync", tShow);
 
                     var dir = Path.GetDirectoryName(marker);
                     Directory.CreateDirectory(dir);
