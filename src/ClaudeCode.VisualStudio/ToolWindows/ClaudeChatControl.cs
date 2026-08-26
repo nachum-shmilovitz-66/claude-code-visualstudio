@@ -40,6 +40,9 @@ namespace ClaudeCode.VisualStudio
         private List<string> _tools = new List<string>();
         private List<string> _mcpServers = new List<string>();
         private SessionRecord _record;        // persisted transcript for the current cwd
+        private string _lastSentText;         // last turn, replayed once if --resume is refused
+        private IReadOnlyList<ImageInput> _lastSentImages;
+        private bool _resumeRetried;          // one replay per turn, never a restart loop
         private string _pendingResumeId;      // CLI session id to --resume on next start (restore)
         private bool _solutionHooked;         // subscribed to solution-load events (restore retry)
         private bool _updateWatchRunning;     // polling for a `claude update` to land
@@ -235,6 +238,15 @@ namespace ClaudeCode.VisualStudio
                     break;
                 case "openClaudeTerminal":
                     LaunchClaudeTerminal();
+                    break;
+                case "startLogin":
+                    StartInPanelLogin();
+                    break;
+                case "submitAuthCode":
+                    SubmitAuthCode(GetStr(message.Payload, "code"));
+                    break;
+                case "cancelLogin":
+                    CancelInPanelLogin();
                     break;
                 case "installCli":
                     LaunchCliInstall();
@@ -590,6 +602,21 @@ namespace ClaudeCode.VisualStudio
 
                     if (cliFound && loggedIn)
                     {
+                        // Confirm with the CLI now that we are off the load path. HasStoredToken
+                        // only proves somebody signed in once; the file outlives the token, so an
+                        // expired login otherwise reads as healthy right up until a turn fails.
+                        t = Perf.Now;
+                        var auth = GetAuthStatus();
+                        Perf.Step("setup: claude auth status (process)", t);
+                        if (auth != null && !auth.LoggedIn)
+                        {
+                            Log.Write("setup: credentials present but CLI reports signed out");
+                            loggedIn = false;
+                        }
+                    }
+
+                    if (cliFound && loggedIn)
+                    {
                         t = Perf.Now;
                         cliVersion = GetInstalledCliVersion();
                         Perf.Step("setup: claude --version (process)", t);
@@ -689,23 +716,66 @@ namespace ClaudeCode.VisualStudio
             catch (Exception ex) { Log.Write("GetInstalledCliVersion: " + ex.Message); return null; }
         }
 
-        // Latest published version from the npm registry (the "latest" dist-tag). Cached after the
-        // first success; returns null on any failure (offline etc) so we simply don't warn.
+        // The release channel the CLI updates along: "latest" (the default) or "stable", read from
+        // autoUpdatesChannel in the user settings file. The banner's whole job is to predict what
+        // clicking "Update CLI" would install, and a stable-channel user measured against the
+        // latest head gets a prompt that updating can never satisfy - stable trails latest by
+        // about a week, so the banner would reappear for ever, every hour, on an up-to-date CLI.
+        private static string GetUpdateChannel()
+        {
+            try
+            {
+                // CLAUDE_CONFIG_DIR relocates the whole ~/.claude tree; honour it or we would read
+                // a settings file the CLI itself is ignoring.
+                var dir = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+                if (string.IsNullOrEmpty(dir))
+                    dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
+
+                var settings = Path.Combine(dir, "settings.json");
+                if (!File.Exists(settings)) return "latest";
+
+                using (var doc = JsonDocument.Parse(File.ReadAllText(settings)))
+                {
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                        doc.RootElement.TryGetProperty("autoUpdatesChannel", out var ch) &&
+                        ch.ValueKind == JsonValueKind.String)
+                    {
+                        var name = (ch.GetString() ?? string.Empty).Trim().ToLowerInvariant();
+                        if (name == "stable" || name == "latest") return name;
+                    }
+                }
+            }
+            catch (Exception ex) { Log.Write("GetUpdateChannel: " + ex.Message); }
+            return "latest";
+        }
+
+        // Head of the release channel an update would actually install from. The npm dist-tags
+        // mirror the native installer's channels (stable/latest carry the same versions), so one
+        // small request answers for both install kinds. Cached after the first success; returns
+        // null on any failure (offline etc) so we simply don't warn.
         private static string GetLatestCliVersion()
         {
             if (!string.IsNullOrEmpty(_cachedLatestCli)) return _cachedLatestCli;
             try
             {
+                string channel = GetUpdateChannel();
                 System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12;
                 using (var wc = new System.Net.WebClient())
                 {
                     wc.Headers.Add("User-Agent", "ClaudeCode-VS-Extension");
-                    string json = wc.DownloadString("https://registry.npmjs.org/@anthropic-ai/claude-code/latest");
+                    string json = wc.DownloadString("https://registry.npmjs.org/-/package/@anthropic-ai/claude-code/dist-tags");
                     using (var doc = JsonDocument.Parse(json))
                     {
-                        if (doc.RootElement.TryGetProperty("version", out var v))
+                        // An unknown/retired channel tag falls back to latest rather than warning
+                        // about nothing at all.
+                        if (!doc.RootElement.TryGetProperty(channel, out var v) ||
+                            v.ValueKind != JsonValueKind.String)
+                            doc.RootElement.TryGetProperty("latest", out v);
+
+                        if (v.ValueKind == JsonValueKind.String)
                         {
                             _cachedLatestCli = v.GetString();
+                            Log.Write("cli channel=" + channel + " head=" + (_cachedLatestCli ?? "?"));
                             return _cachedLatestCli;
                         }
                     }
@@ -865,6 +935,12 @@ namespace ClaudeCode.VisualStudio
                 }
                 finally { _updateRunning = false; }
 
+                // Keep the updater's own words whatever the exit code says. They were previously
+                // thrown away on the success path, which is exactly the path that went wrong: the
+                // CLI downloaded a release, failed to put it in place, exited 0, and the only
+                // record left behind was "ok: 2.1.241 -> 2.1.241".
+                if (!string.IsNullOrEmpty(output)) Log.Write("cli update output: " + Tail(output, 600));
+
                 if (timedOut || exit != 0)
                 {
                     Log.Write("cli update FAILED exit=" + (timedOut ? "timeout" : exit.ToString()));
@@ -879,14 +955,33 @@ namespace ClaudeCode.VisualStudio
                 }
 
                 string after = GetInstalledCliVersion();
-                Log.Write("cli update ok: " + (before ?? "?") + " -> " + (after ?? "?"));
+                bool changed = !string.IsNullOrEmpty(after) && after != before;
+                Log.Write("cli update " + (changed ? "ok: " : "NO-OP: ") + (before ?? "?") + " -> " + (after ?? "?"));
+
+                // Exit 0 is not proof that anything moved. When it doesn't, saying so is the whole
+                // point: the banner otherwise re-renders identically and the click reads as having
+                // done nothing at all, so the user just presses it again. The watcher started
+                // earlier still runs, so a swap that lands late is still reported as a success.
+                if (!changed)
+                {
+                    _host.PostMessage("cliUpdate", new
+                    {
+                        state = "stalled",
+                        version = after,
+                        // Roomier than the failure detail: this is the only account of what went
+                        // wrong, and the banner scrolls it.
+                        detail = Tail(output, 600),
+                    });
+                    SendSetupStatus(forceRefresh: true);
+                    return;
+                }
 
                 // Report the outcome directly rather than relying on the status message racing it.
                 _host.PostMessage("cliUpdate", new
                 {
                     state = "done",
                     version = after,
-                    changed = !string.IsNullOrEmpty(after) && after != before,
+                    changed = true,
                 });
                 SendSetupStatus(forceRefresh: true);
             });
@@ -990,6 +1085,192 @@ namespace ClaudeCode.VisualStudio
             catch (Exception ex) { Log.Write("LaunchMcpAuthTerminal: " + ex.Message); }
         }
 
+        // ---- Sign-in, without leaving the tool window -----------------------------------------
+        //
+        // `claude auth login` is scriptable: with stdout on a pipe it prints the authorize URL,
+        // opens the browser itself, and then waits on STDIN for the code the callback page shows.
+        // All three parts have somewhere to go in the panel - the URL becomes a link, the wait
+        // becomes a text box, and the code goes to the child's stdin - so the terminal is no
+        // longer the only way in. The terminal route stays as the fallback for the cases that
+        // really are interactive (an SSO prompt, a broken browser handoff).
+
+        private System.Diagnostics.Process _loginProcess;
+        private readonly object _loginLock = new object();
+        private const int LoginTimeoutMs = 10 * 60 * 1000;
+
+        private void StartInPanelLogin()
+        {
+            lock (_loginLock)
+            {
+                if (_loginProcess != null && !_loginProcess.HasExited) { Log.Write("login: already running"); return; }
+            }
+
+            _host.PostMessage("authFlow", new { state = "starting" });
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                var transcript = new System.Text.StringBuilder();
+                try
+                {
+                    var cli = ClaudeCliLocator.Locate();
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = cli.FileName,
+                        Arguments = cli.ArgumentPrefix + "auth login",
+                        WorkingDirectory = string.IsNullOrEmpty(_cwd) ? Environment.CurrentDirectory : _cwd,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardInput = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                    };
+
+                    Log.Write("login: " + cli.ResolvedPath + " auth login");
+                    var p = System.Diagnostics.Process.Start(psi);
+                    if (p == null) throw new InvalidOperationException("process did not start");
+                    lock (_loginLock) { _loginProcess = p; }
+
+                    // stderr is drained separately so a full pipe can never wedge the child.
+                    var errTask = p.StandardError.ReadToEndAsync();
+
+                    // Read in chunks, not lines: the "Paste code here if prompted >" prompt has no
+                    // trailing newline, so ReadLine would block on the very thing we are waiting
+                    // to react to.
+                    var buf = new char[512];
+                    bool urlSent = false;
+                    while (true)
+                    {
+                        int read = await p.StandardOutput.ReadAsync(buf, 0, buf.Length).ConfigureAwait(false);
+                        if (read <= 0) break;
+                        transcript.Append(buf, 0, read);
+
+                        if (!urlSent)
+                        {
+                            var m = System.Text.RegularExpressions.Regex.Match(transcript.ToString(), @"https://\S+");
+                            if (m.Success)
+                            {
+                                urlSent = true;
+                                Log.Write("login: authorize url received");
+                                // The CLI opens the browser itself; the link is for when it can't.
+                                _host.PostMessage("authFlow", new { state = "awaitingCode", url = m.Value });
+                            }
+                        }
+                    }
+
+                    if (!p.WaitForExit(LoginTimeoutMs)) { try { p.Kill(); } catch { } }
+                    string err = (await errTask.ConfigureAwait(false) ?? string.Empty).Trim();
+                    if (err.Length > 0) transcript.AppendLine().Append(err);
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("StartInPanelLogin: " + ex.Message);
+                    transcript.AppendLine().Append(ex.Message);
+                }
+                finally
+                {
+                    lock (_loginLock)
+                    {
+                        try { if (_loginProcess != null) _loginProcess.Dispose(); } catch { }
+                        _loginProcess = null;
+                    }
+                }
+
+                // Ask the CLI what it thinks rather than inferring from an exit code - the same
+                // answer the rest of the extension now gates on.
+                var status = GetAuthStatus();
+                bool ok = status != null && status.LoggedIn;
+                Log.Write("login finished: loggedIn=" + ok);
+                _host.PostMessage("authFlow", new
+                {
+                    state = ok ? "done" : "failed",
+                    email = status == null ? null : status.Email,
+                    plan = status == null ? null : status.Plan,
+                    detail = Tail(transcript.ToString().Trim(), 400),
+                });
+                SendSetupStatus(forceRefresh: true);
+            });
+        }
+
+        // The code from the callback page, handed to the waiting child on stdin. It never reaches
+        // a command line, and newlines are stripped so one paste can only answer one prompt.
+        private void SubmitAuthCode(string code)
+        {
+            try
+            {
+                var clean = (code ?? string.Empty).Replace("\r", "").Replace("\n", "").Trim();
+                if (clean.Length == 0 || clean.Length > 512) { Log.Write("login: ignoring empty/oversized code"); return; }
+
+                System.Diagnostics.Process p;
+                lock (_loginLock) { p = _loginProcess; }
+                if (p == null || p.HasExited) { Log.Write("login: no process waiting for a code"); return; }
+
+                p.StandardInput.WriteLine(clean);
+                p.StandardInput.Flush();
+                Log.Write("login: code submitted");
+                _host.PostMessage("authFlow", new { state = "verifying" });
+            }
+            catch (Exception ex) { Log.Write("SubmitAuthCode: " + ex.Message); }
+        }
+
+        private void CancelInPanelLogin()
+        {
+            try
+            {
+                System.Diagnostics.Process p;
+                lock (_loginLock) { p = _loginProcess; _loginProcess = null; }
+                if (p != null && !p.HasExited) { try { p.Kill(); } catch { } }
+                Log.Write("login: cancelled");
+            }
+            catch (Exception ex) { Log.Write("CancelInPanelLogin: " + ex.Message); }
+        }
+
+        private sealed class AuthStatus
+        {
+            public bool LoggedIn;
+            public string Email;
+            public string Plan;
+        }
+
+        // `claude auth status --json` is the CLI's own verdict. A credentials file on disk only
+        // says somebody signed in once - it stays there when the token expires, which is exactly
+        // when the banner most needs to be right.
+        private static AuthStatus GetAuthStatus()
+        {
+            try
+            {
+                var cli = ClaudeCliLocator.Locate();
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = cli.FileName,
+                    Arguments = cli.ArgumentPrefix + "auth status --json",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                };
+                using (var p = System.Diagnostics.Process.Start(psi))
+                {
+                    if (p == null) return null;
+                    string outp = p.StandardOutput.ReadToEnd();
+                    if (!p.WaitForExit(15000)) { try { p.Kill(); } catch { } return null; }
+
+                    int i = (outp ?? string.Empty).IndexOf('{');
+                    if (i < 0) return null;
+                    using (var doc = JsonDocument.Parse(outp.Substring(i)))
+                    {
+                        var r = doc.RootElement;
+                        return new AuthStatus
+                        {
+                            LoggedIn = r.TryGetProperty("loggedIn", out var li) && li.ValueKind == JsonValueKind.True,
+                            Email = r.TryGetProperty("email", out var em) && em.ValueKind == JsonValueKind.String ? em.GetString() : null,
+                            Plan = r.TryGetProperty("subscriptionType", out var st) && st.ValueKind == JsonValueKind.String ? st.GetString() : null,
+                        };
+                    }
+                }
+            }
+            catch (Exception ex) { Log.Write("GetAuthStatus: " + ex.Message); return null; }
+        }
+
         // Effort levels available per model. Opus and Fable expose the full extended-thinking
         // range plus Ultracode workflows; Sonnet/Haiku expose progressively fewer.
         private static object BuildEffortsByModel()
@@ -1020,7 +1301,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.12",
+                version = "1.0.13",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -1231,6 +1512,9 @@ namespace ClaudeCode.VisualStudio
 
                     await EnsureWorkingDirectoryAsync();
                     EnsureSession();
+                    _lastSentText = prefix + text;
+                    _lastSentImages = images;
+                    _resumeRetried = false;
                     _session.SendUserMessage(prefix + text, images);
                     AppendHistory("user", text);
                     Log.Write("HandleSend: message sent");
@@ -1452,7 +1736,32 @@ namespace ClaudeCode.VisualStudio
             {
                 _host.PostMessage("status", new { state = "idle" });
                 Log.Write("claude process exited (code " + code + ")");
-                if (code != 0) _host.PostMessage("error", new { message = "claude exited (code " + code + "). Check that you are logged in (run 'claude' once in a terminal)." });
+                if (code == 0) return;
+
+                // A resume id the CLI can't find kills every launch before it reads a message, so
+                // the same turn fails identically for ever. The id is the only broken part - drop
+                // it and replay the turn on a fresh session, once, rather than making the user
+                // find and clear it themselves.
+                if (s.ResumeRejected && !_resumeRetried)
+                {
+                    _resumeRetried = true;
+                    Log.Write("resume rejected - dropping stale session id and retrying on a fresh session");
+                    RetryOnFreshSession();
+                    return;
+                }
+
+                // Otherwise report what the CLI actually said. This used to assert a login problem
+                // for every non-zero exit, which sent users to a terminal to fix an account that
+                // was never broken; the real stderr was captured and then thrown away.
+                var why = (s.LastError ?? string.Empty).Trim();
+                _host.PostMessage("error", new
+                {
+                    message = why.Length > 0
+                        ? "claude exited (code " + code + "): " + Tail(why, 300)
+                        : "claude exited (code " + code + ") without reporting a reason. If this repeats, check that you are signed in.",
+                    // Only offer the login route when the CLI actually pointed at authentication.
+                    login = why.Length == 0 || LooksLikeAuthFailure(why),
+                });
             };
             s.Diagnostic += d => Log.Write("diag: " + d);
         }
@@ -1669,6 +1978,52 @@ namespace ClaudeCode.VisualStudio
             string behavior = GetStr(payload, "behavior") ?? "deny";
             if (behavior == "allow_always") behavior = "allow";
             _session?.RespondToPermission(id, behavior == "deny" ? "deny" : "allow", null);
+        }
+
+        /// <summary>
+        /// Start over without the stale <c>--resume</c> id and re-send the turn that died with it.
+        /// The transcript is kept: only the CLI-side conversation is gone, and re-sending is what
+        /// the user would otherwise do by hand after being told to clear something invisible.
+        /// </summary>
+        private void RetryOnFreshSession()
+        {
+            _ = System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    _session?.Dispose();
+                    _session = null;
+                    _pendingResumeId = null;
+                    if (_record != null)
+                    {
+                        _record.SessionId = null;
+                        SessionStore.Save(_cwd, _record);
+                    }
+
+                    if (string.IsNullOrEmpty(_lastSentText)) return;
+
+                    _host.PostMessage("status", new { state = "thinking" });
+                    EnsureSession();
+                    _session.SendUserMessage(_lastSentText, _lastSentImages);
+                    Log.Write("resume retry: message re-sent on a fresh session");
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("RetryOnFreshSession: " + ex.Message);
+                    _host.PostMessage("status", new { state = "idle" });
+                    _host.PostMessage("error", new { message = "Could not restart the conversation: " + ex.Message });
+                }
+            });
+        }
+
+        // Words the CLI uses when the failure really is about the account, as opposed to the many
+        // other things that exit non-zero.
+        private static bool LooksLikeAuthFailure(string s)
+        {
+            var t = s.ToLowerInvariant();
+            return t.Contains("log in") || t.Contains("login") || t.Contains("sign in")
+                || t.Contains("unauthor") || t.Contains("authentication") || t.Contains("credential")
+                || t.Contains("api key") || t.Contains("oauth") || t.Contains("401") || t.Contains("403");
         }
 
         private void ResetSession()

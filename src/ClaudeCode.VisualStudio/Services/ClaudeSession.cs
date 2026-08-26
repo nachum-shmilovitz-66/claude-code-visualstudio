@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -104,6 +104,17 @@ namespace ClaudeCode.VisualStudio.Services
         public event Action<string> ErrorEvent;
         public event Action<int> Exited;
         public event Action<string> Diagnostic;
+
+        /// <summary>
+        /// The CLI refused the <c>--resume</c> id we passed: the conversation is gone (a cleaned-up
+        /// transcript, a different machine, a cwd that never had it). Every launch then dies with
+        /// exit 1 before reading a single message, so the caller must drop the stored id rather
+        /// than retry the same dead session for ever.
+        /// </summary>
+        public bool ResumeRejected { get; private set; }
+
+        /// <summary>Last non-empty stderr line, so an exit code can be reported with its cause.</summary>
+        public string LastError { get; private set; }
 
         public ClaudeSession(ClaudeSessionOptions options)
         {
@@ -474,7 +485,16 @@ namespace ClaudeCode.VisualStudio.Services
                 string line;
                 while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
-                    if (line.Length > 0) { Log.WriteVerbose("ERR " + line); Diagnostic?.Invoke("stderr: " + line); }
+                    if (line.Length > 0)
+                    {
+                        Log.WriteVerbose("ERR " + line);
+                        Diagnostic?.Invoke("stderr: " + line);
+                        LastError = line;
+                        // The CLI's wording for an id it cannot find. Matched loosely so a
+                        // reworded message still trips it rather than silently reviving the loop.
+                        if (line.IndexOf("No conversation found", StringComparison.OrdinalIgnoreCase) >= 0)
+                            ResumeRejected = true;
+                    }
                 }
             }
             catch { }

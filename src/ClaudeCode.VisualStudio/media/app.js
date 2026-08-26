@@ -37,6 +37,9 @@
   let lastCliVersion = null;   // CLI version from the previous setup message, to spot the change
   let updatedTo = null;        // new version, once an in-flight update has been confirmed landed
   let updateError = null;      // a background update failed — never let a hidden process fail quietly
+  let updateStalled = null;    // the updater exited 0 but the installed version never moved
+  let authFlow = null;         // in-panel sign-in in progress: {state, url, email, plan, detail}
+  let authCodeDraft = "";      // half-typed code, so a re-render doesn't empty the box
   let inputHistory = [], histIndex = -1, histDraft = ""; // sent-input history; histIndex === -1 = live draft
   let acct = null;
   let thinkingVisible = true;
@@ -354,10 +357,17 @@
     // the page to infer it from a version change, so the confirmation can't be lost to a race
     // between this and the status message that follows.
     cliUpdate: (p) => {
-      if (p.state === "running") { updateInFlight = true; updateError = null; }
-      else if (p.state === "failed") { updateInFlight = false; updateError = p.detail || "The update failed."; }
-      else if (p.state === "done") {
+      if (p.state === "running") { updateInFlight = true; updateError = null; updateStalled = null; }
+      else if (p.state === "failed") { updateInFlight = false; updateStalled = null; updateError = p.detail || "The update failed."; }
+      // Exit code 0 with the installed version unchanged. Not an error the CLI reported, so it
+      // can't be shown as one — but it is emphatically not the "done" it used to be treated as,
+      // which re-rendered an identical banner and made the click look like it did nothing.
+      else if (p.state === "stalled") {
         updateInFlight = false; updateError = null;
+        updateStalled = { version: p.version || "", detail: p.detail || "" };
+      }
+      else if (p.state === "done") {
+        updateInFlight = false; updateError = null; updateStalled = null;
         if (p.changed && p.version) {
           updatedTo = p.version; dismissedVersion = null;
           // The cached status predates the update, so rendering from it would flash the old
@@ -367,6 +377,13 @@
           lastSetup = Object.assign({}, lastSetup, { cliVersion: p.version, cliOutdated: false });
         }
       }
+      renderSetupBanner(lastSetup || {});
+    },
+    // Progress of an in-panel `claude auth login`. "done" retires the flow; "failed" is kept
+    // so the banner can say what went wrong instead of silently reverting to the first prompt.
+    authFlow: (p) => {
+      if (p.state === "done") { authFlow = null; authCodeDraft = ""; }
+      else authFlow = p;
       renderSetupBanner(lastSetup || {});
     },
     files: (p) => { fileList = p.files || []; if (cOpen === "at") filterAt(); },
@@ -436,14 +453,19 @@
       const msg = p.message || "Error";
       const low = msg.toLowerCase();
       let extra = "";
-      if (/log ?in|logged in|auth|credential|unauthor|could not launch|exited \(code/.test(low))
-        extra = '<div class="err-actions"><button class="sb-btn" data-act="login">Open terminal to log in</button></div>';
+      // The host now says whether the CLI actually blamed authentication. Fall back to sniffing
+      // the text only for messages that predate the flag — guessing from "exited (code" is what
+      // sent people to fix a login that was never broken.
+      const wantsLogin = typeof p.login === "boolean" ? p.login
+        : /log ?in|logged in|auth|credential|unauthor|could not launch/.test(low);
+      if (wantsLogin)
+        extra = '<div class="err-actions"><button class="sb-btn" data-act="login">Sign in</button></div>';
       else if (/credit|billing|subscription|quota|insufficient|payment|plan/.test(low))
         extra = '<div class="err-note">Claude Code needs a paid Pro/Max plan or API credits — a free account can\'t run it.</div>';
       const b = addMsg("assistant");
       b.innerHTML = '<span style="color:var(--red)">⚠ ' + window.md.esc(msg) + "</span>" + extra;
       const lb = b.querySelector('[data-act="login"]');
-      if (lb) lb.addEventListener("click", () => post("openClaudeTerminal"));
+      if (lb) lb.addEventListener("click", () => { authFlow = { state: "starting" }; post("startLogin"); renderSetupBanner(lastSetup || {}); });
       post("recheckSetup"); // refresh the onboarding banner after a failure
     },
     system: (p) => { if (p.subtype === "init" && p.model) ctx.model = p.model; },
@@ -1248,6 +1270,41 @@
     }, UPDATED_BANNER_MS);
   }
 
+  // The updater's own stdout, when it produced any. It is the only first-hand account of what
+  // the install step did, and dropping it is what made this failure unreadable in the first place.
+  function stalledOutput(detail) {
+    const t = (detail || "").trim();
+    return t ? '<br>What it printed:<pre class="sb-out">' + window.md.esc(t) + '</pre>' : '<br>';
+  }
+
+  // Signing in without leaving the panel: the CLI prints an authorize URL, opens the browser,
+  // and waits on stdin for the code the callback page shows. Each step gets a place here, so the
+  // terminal is the fallback rather than the only route.
+  function loginHtml() {
+    const f = authFlow;
+    if (f && (f.state === "starting" || f.state === "verifying")) {
+      return '<div class="sb-row"><span class="sb-ico">🔑</span><div class="sb-text"><b>'
+           + (f.state === "starting" ? 'Starting sign-in…</b> your browser should open in a moment.'
+                                     : 'Checking your sign-in…</b> almost there.')
+           + '</div></div><div class="sb-actions"><button class="sb-btn" data-act="cancelLogin">Cancel</button></div>';
+    }
+    if (f && f.state === "awaitingCode") {
+      return '<div class="sb-row"><span class="sb-ico">🔑</span><div class="sb-text"><b>Approve the sign-in in your browser</b>, then paste the code it shows you here.</div></div>'
+           + '<div class="sb-actions"><input class="sb-input" data-act="code" type="text" placeholder="Paste code here" spellcheck="false" autocomplete="off">'
+           + '<button class="sb-btn primary" data-act="submitCode">Sign in</button>'
+           + (f.url ? '<button class="sb-btn" data-act="authUrl">Reopen sign-in page</button>' : '')
+           + '<button class="sb-btn" data-act="cancelLogin">Cancel</button></div>';
+    }
+    const failed = f && f.state === "failed"
+      ? '<br><b>That sign-in didn\'t complete.</b>' + stalledOutput(f.detail)
+        + 'Try again, or use a terminal if the flow needs more than a pasted code (SSO, for instance).'
+      : '';
+    return '<div class="sb-row"><span class="sb-ico">🔑</span><div class="sb-text"><b>Not signed in to Claude.</b> Claude Code needs a paid <b>Pro/Max</b> plan or API credits — a free account can\'t run it.' + failed + '</div></div>'
+         + '<div class="sb-actions"><button class="sb-btn primary" data-act="startLogin">Sign in</button>'
+         + '<button class="sb-btn" data-act="login">Use a terminal instead</button>'
+         + '<button class="sb-btn" data-act="recheck">Re-check</button></div>';
+  }
+
   function renderSetupBanner(p) {
     const el = els.setupBanner; if (!el) return;
     p = p || {};
@@ -1260,11 +1317,14 @@
     // the update worked.
     const prevVersion = lastCliVersion;
     if (p.cliVersion) lastCliVersion = p.cliVersion;
-    if (updateInFlight && prevVersion && p.cliVersion && p.cliVersion !== prevVersion) {
+    if ((updateInFlight || updateStalled) && prevVersion && p.cliVersion && p.cliVersion !== prevVersion) {
       updateInFlight = false;
+      updateStalled = null;      // it landed after all — the watcher caught a swap that came late
       updatedTo = p.cliVersion;
       dismissedVersion = null;   // this is news, even if the update prompt was dismissed earlier
     }
+    // A stall is only worth reporting while the CLI is actually still behind.
+    if (updateStalled && p.cliFound && p.loggedIn && p.cliVersion && !p.cliOutdated) updateStalled = null;
     const wasRecheck = recheckPending; recheckPending = false;
 
     // The host's hourly re-check is the reminder: it undoes an earlier dismiss, so an update
@@ -1272,7 +1332,9 @@
     if (p.periodic) dismissedVersion = null;
 
     // Set before the branch chain so the all-clear path (which returns early) stops it too.
-    if (p.cliFound && !p.loggedIn) startLoginPoll(false); else stopLoginPoll();
+    // An in-panel sign-in reports its own outcome, and each poll re-renders the banner — which
+    // would empty the code box under the user's cursor.
+    if (p.cliFound && !p.loggedIn && !authFlow) startLoginPoll(false); else stopLoginPoll();
 
     let html = "";
     if (!p.cliFound) {
@@ -1285,30 +1347,33 @@
       html = '<div class="sb-row"><span class="sb-ico">⚠</span><div class="sb-text"><b>Claude CLI not found.</b> This extension drives your locally-installed Claude Code CLI — it does not bundle one. ' + hint + '<br><code>npm install -g @anthropic-ai/claude-code</code></div></div>'
            + '<div class="sb-actions">' + installBtn + '<button class="sb-btn" data-act="docs">Install guide</button><button class="sb-btn" data-act="recheck">Re-check</button></div>';
     } else if (!p.loggedIn) {
-      html = '<div class="sb-row"><span class="sb-ico">🔑</span><div class="sb-text"><b>Not signed in to Claude.</b> Login is handled by the CLI. Open a terminal and run <code>/login</code>. Claude Code needs a paid <b>Pro/Max</b> plan or API credits — a free account can\'t run it.</div></div>'
-           + '<div class="sb-actions"><button class="sb-btn primary" data-act="login">Open terminal to log in</button><button class="sb-btn" data-act="recheck">I\'ve logged in — re-check</button></div>';
+      html = loginHtml();
     } else if (p.cliOutdated && p.latestCliVersion !== dismissedVersion) {
       // A re-check that finds nothing new must still show it ran, otherwise an identical banner
       // re-render reads as "it didn't even look".
       const note = updateError
         ? '<br><b>The update failed.</b> <code>' + window.md.esc(updateError) + '</code><br>Run it in a terminal to see the full output — some failures (a login prompt, for instance) need an interactive session.'
+        : updateStalled
+        ? '<br><b>The updater reported success, but the installed version is still <code>' + window.md.esc(updateStalled.version || p.cliVersion || "?") + '</code>.</b> It can fetch a release and still fail to put it in place — a running Claude session can hold the binary open.' + stalledOutput(updateStalled.detail) + 'Run it in a terminal to watch the install step itself.'
         : wasRecheck
           ? '<br><b>Re-checked just now — still on <code>' + window.md.esc(p.cliVersion || "?") + '</code>.</b> The update may not have replaced the binary yet; a running Claude session can hold it open.'
           : (updateInFlight ? '<br>Updating in the background — this banner reports the result when it finishes.' : '');
-      html = '<div class="sb-row"><span class="sb-ico">' + (updateError ? '⚠' : '⬆') + '</span><div class="sb-text"><b>Claude CLI update available.</b> Installed <code>' + window.md.esc(p.cliVersion || "?") + '</code>, latest <code>' + window.md.esc(p.latestCliVersion || "?") + '</code>. Newer models and fixes ship in CLI updates — an older CLI may not offer the latest models (e.g. the picker can list a model your CLI cannot run yet).' + note + '</div></div>'
+      html = '<div class="sb-row"><span class="sb-ico">' + (updateError || updateStalled ? '⚠' : '⬆') + '</span><div class="sb-text"><b>Claude CLI update available.</b> Installed <code>' + window.md.esc(p.cliVersion || "?") + '</code>, latest <code>' + window.md.esc(p.latestCliVersion || "?") + '</code>. Newer models and fixes ship in CLI updates — an older CLI may not offer the latest models (e.g. the picker can list a model your CLI cannot run yet).' + note + '</div></div>'
            + '<div class="sb-actions">' + (updateInFlight
                 ? '<button class="sb-btn primary" data-act="update" disabled>updating…</button>'
-                : '<button class="sb-btn primary" data-act="update">' + (updateError ? 'Try again' : 'Update CLI') + '</button>')
-           + (updateError ? '<button class="sb-btn" data-act="terminal">Run in terminal</button>' : '')
+                : '<button class="sb-btn primary" data-act="update">' + (updateError || updateStalled ? 'Try again' : 'Update CLI') + '</button>')
+           + (updateError || updateStalled ? '<button class="sb-btn" data-act="terminal">Run in terminal</button>' : '')
            + '<button class="sb-btn" data-act="recheck">Re-check</button><button class="sb-btn" data-act="dismiss">Dismiss</button></div>';
     } else if (updatedTo) {
       html = '<div class="sb-row"><span class="sb-ico">✓</span><div class="sb-text"><b>Claude CLI updated to <code>' + window.md.esc(updatedTo) + '</code>.</b> The new version is picked up on your next message — no restart needed.</div></div>'
            + '<div class="sb-actions"><button class="sb-btn" data-act="dismissUpdated">Dismiss</button></div>';
       scheduleUpdatedDismiss();   // it has served its purpose once read; don't make it a chore
-    } else if (updateError) {
+    } else if (updateError || updateStalled) {
       // The CLI no longer reports as outdated, but the update we ran did fail — say so rather
       // than letting a background failure vanish.
-      html = '<div class="sb-row"><span class="sb-ico">⚠</span><div class="sb-text"><b>The Claude CLI update failed.</b> <code>' + window.md.esc(updateError) + '</code></div></div>'
+      html = '<div class="sb-row"><span class="sb-ico">⚠</span><div class="sb-text">' + (updateError
+               ? '<b>The Claude CLI update failed.</b> <code>' + window.md.esc(updateError) + '</code>'
+               : '<b>The Claude CLI update did not change the installed version.</b> Still on <code>' + window.md.esc(updateStalled.version || "?") + '</code>.' + stalledOutput(updateStalled.detail)) + '</div></div>'
            + '<div class="sb-actions"><button class="sb-btn primary" data-act="update">Try again</button><button class="sb-btn" data-act="terminal">Run in terminal</button><button class="sb-btn" data-act="dismissError">Dismiss</button></div>';
     } else {
       el.classList.add("hidden"); el.innerHTML = ""; return;
@@ -1318,16 +1383,39 @@
     el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
       const a = b.dataset.act;
       if (a === "login") { post("openClaudeTerminal"); startLoginPoll(true); }
+      else if (a === "startLogin") { authFlow = { state: "starting" }; stopLoginPoll(); post("startLogin"); renderSetupBanner(lastSetup || {}); }
+      else if (a === "cancelLogin") { authFlow = null; authCodeDraft = ""; post("cancelLogin"); renderSetupBanner(lastSetup || {}); }
+      else if (a === "submitCode") { submitAuthCode(); }
+      else if (a === "authUrl") { if (authFlow && authFlow.url) post("openExternal", { url: authFlow.url }); }
       else if (a === "install") { post("installCli"); b.textContent = "installing… (see terminal)"; b.disabled = true; }
-      else if (a === "update") { updateInFlight = true; updateError = null; post("updateCli"); b.textContent = "updating…"; b.disabled = true; }
-      else if (a === "terminal") { updateInFlight = true; updateError = null; post("updateCliInTerminal"); renderSetupBanner(lastSetup || {}); }
-      else if (a === "dismissError") { updateError = null; el.classList.add("hidden"); el.innerHTML = ""; }
-      else if (a === "dismiss") { dismissedVersion = (lastSetup && lastSetup.latestCliVersion) || "*"; el.classList.add("hidden"); el.innerHTML = ""; }
+      else if (a === "update") { updateInFlight = true; updateError = null; updateStalled = null; post("updateCli"); b.textContent = "updating…"; b.disabled = true; }
+      else if (a === "terminal") { updateInFlight = true; updateError = null; updateStalled = null; post("updateCliInTerminal"); renderSetupBanner(lastSetup || {}); }
+      else if (a === "dismissError") { updateError = null; updateStalled = null; el.classList.add("hidden"); el.innerHTML = ""; }
+      else if (a === "dismiss") { dismissedVersion = (lastSetup && lastSetup.latestCliVersion) || "*"; updateError = null; updateStalled = null; el.classList.add("hidden"); el.innerHTML = ""; }
       else if (a === "dismissUpdated") { clearUpdatedTimer(); updatedTo = null; el.classList.add("hidden"); el.innerHTML = ""; }
       else if (a === "recheck") { recheckPending = true; post("recheckSetup"); b.textContent = "checking…"; b.disabled = true; }
       else if (a === "node") post("openExternal", { url: "https://nodejs.org/en/download" });
       else if (a === "docs") post("openExternal", { url: "https://docs.claude.com/en/docs/claude-code/setup" });
     }));
+
+    // Restore whatever was typed before the last render, and let Enter submit it.
+    const codeBox = el.querySelector('input[data-act="code"]');
+    if (codeBox) {
+      codeBox.value = authCodeDraft;
+      codeBox.addEventListener("input", () => { authCodeDraft = codeBox.value; });
+      codeBox.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitAuthCode(); } });
+      try { codeBox.focus(); } catch (_) {}
+    }
+  }
+
+  function submitAuthCode() {
+    const box = els.setupBanner && els.setupBanner.querySelector('input[data-act="code"]');
+    const code = ((box && box.value) || authCodeDraft || "").trim();
+    if (!code) return;
+    authCodeDraft = "";
+    post("submitAuthCode", { code: code });
+    authFlow = { state: "verifying" };
+    renderSetupBanner(lastSetup || {});
   }
 
   function closeAll() { closeTop(); closeC(); }

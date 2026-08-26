@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="ClaudeCode.VisualStudio.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="1.0.12" Language="en-US" Publisher="Nachum Shmilovitz" />
+    <Identity Id="ClaudeCode.VisualStudio.15FC1958-19BD-4195-8BB9-AFD6DD0F334C" Version="1.0.13" Language="en-US" Publisher="Nachum Shmilovitz" />
     <DisplayName>Claude Code for Visual Studio (Unofficial)</DisplayName>
     <Description xml:space="preserve">Claude Code brings Anthropic's agentic coding assistant into Visual Studio as a native chat tool window, docked next to Solution Explorer — the same experience as the VS Code extension. Chat about your open solution; Claude reads and edits your code, runs tools, and shows each step inline. Pick the model, permission mode, and reasoning effort in the composer; review edits as an inline diff; and, while debugging, let Claude read the paused runtime (call stack, locals, exceptions) to find the root cause. Powered by your local Claude Code CLI — your login, CLAUDE.md, MCP servers, and settings. Requires Visual Studio 2022 or 2026 (amd64) and the WebView2 Runtime.</Description>
     <MoreInfo>https://www.anthropic.com/claude-code</MoreInfo>

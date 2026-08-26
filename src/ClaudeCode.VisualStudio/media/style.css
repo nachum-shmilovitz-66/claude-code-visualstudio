@@ -286,8 +286,11 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .setup-banner .sb-ico { flex: 0 0 auto; }
 .setup-banner .sb-text { color: var(--fg); line-height: 1.45; }
 .setup-banner code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-family: "Cascadia Code", Consolas, monospace; }
+.setup-banner .sb-out { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; margin: 6px 0; padding: 6px 8px; max-height: 140px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; line-height: 1.35; }
 .setup-banner .sb-actions, .err-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .sb-btn { background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
 .sb-btn:hover { background: var(--bg-input); }
+.sb-input { background: var(--bg-input); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; min-width: 220px; flex: 1 1 220px; font-family: "Cascadia Code", Consolas, monospace; }
+.sb-input:focus { outline: none; border-color: var(--accent); }
 .sb-btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .err-note { margin-top: 6px; color: var(--fg-dim); font-style: italic; }

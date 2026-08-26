@@ -7,6 +7,37 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-08-26
+
+- **A conversation the CLI can no longer find no longer breaks every message.** The extension
+  remembers the CLI session id per working directory and resumes it. When that conversation is gone
+  - a cleaned-up transcript, a directory that never had it - `claude` exits with code 1 before
+  reading a single message, and the extension kept handing it the same dead id on every send, so
+  the chat failed identically for ever with no way out from inside the panel. The refusal is now
+  recognised, the stale id dropped, and the turn re-sent once on a fresh session. The transcript is
+  kept: only the CLI-side conversation was missing.
+- **Failures say what actually failed.** Every non-zero exit was reported as "check that you are
+  logged in" - which sent people off to fix an account that was never broken, while the CLI's real
+  stderr was captured and then thrown away. The message now carries what the CLI said, and the
+  sign-in route is offered only when the CLI actually blamed authentication.
+- **Signing in happens in the panel.** `claude auth login` prints an authorize URL, opens the
+  browser, and waits on stdin for the code the callback page shows - so all three steps now have
+  somewhere to go in the banner: a progress line, a paste-code box, and a confirmation. Opening a
+  terminal remains as the fallback for flows that need more than a pasted code.
+- **A login is checked with the CLI, not by looking for a file.** Readiness was decided by the
+  presence of a credentials file, which outlives the token inside it - so an expired login read as
+  healthy right up until a turn failed. The CLI's own `auth status` now has the final word, asked
+  after the load path so the first paint is as quick as before.
+- **An update that silently does nothing is reported instead of ignored.** `claude update` can
+  fetch a release, fail to put it in place, and still exit 0. That counted as success, the banner
+  re-rendered unchanged, and clicking Update looked like it did nothing at all. A run that leaves
+  the installed version untouched is now called out, with the updater's own output shown in the
+  banner and written to the log, which is exactly what was being discarded before.
+- **The update check follows the release channel you actually update along.** It always compared
+  against npm's `latest`. On the `stable` channel - which trails `latest` by about a week - that is
+  a prompt updating can never satisfy, so the banner would return every hour on a CLI that was
+  already as current as its channel allows. `autoUpdatesChannel` is now read from your settings.
+
 ## [1.0.12] - 2026-08-19
 
 - **The slash palette fills in three seconds sooner.** Fetching the command list began by asking
