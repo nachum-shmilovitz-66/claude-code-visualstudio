@@ -348,6 +348,7 @@
       if (typeof p.showThinking === "boolean") thinkingVisible = p.showThinking;
       applyEffortsForModel();
       updateModeLabel();
+      updateModelBtn();
       applyThinkingVisibility();
     },
     commands: (p) => { slashCommands = p.commands || []; commandsLoading = false; if (cOpen === "slash") { const q = els.cpop.querySelector("#palq"); filterPalette(q ? q.value : ""); } },
@@ -442,7 +443,7 @@
       if (compactPin) { ctx.used = compactPin; ctx.live = false; compactPin = 0; }
       else if (!ctx.live) ctx.used = (+(p.inputTokens || 0)) + (+(p.cacheReadTokens || 0)) + (+(p.cacheCreationTokens || 0));
       if (p.contextWindow) { ctx.window = +p.contextWindow; ctx.windowReported = true; }
-      if (p.model) ctx.model = p.model;
+      if (p.model) { ctx.model = p.model; updateModelBtn(); }
       ctx.system = Math.min(ctx.baseline || 0, ctx.used);
       updateRing();
       if (topOpen === "usage") renderUsage();
@@ -468,7 +469,7 @@
       if (lb) lb.addEventListener("click", () => { authFlow = { state: "starting" }; post("startLogin"); renderSetupBanner(lastSetup || {}); });
       post("recheckSetup"); // refresh the onboarding banner after a failure
     },
-    system: (p) => { if (p.subtype === "init" && p.model) ctx.model = p.model; },
+    system: (p) => { if (p.subtype === "init" && p.model) { ctx.model = p.model; updateModelBtn(); } },
     clear: () => { els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear(); },
     restore: (p) => {
       endTurn(); els.messages.innerHTML = ""; toolCards.clear();
@@ -477,6 +478,8 @@
       if (p.effort) cur.effort = p.effort;
       if (typeof p.showThinking === "boolean") { thinkingVisible = p.showThinking; applyThinkingVisibility(); }
       applyEffortsForModel();
+      // The restored selection labels the button, not whatever model a previous session resolved to.
+      ctx.model = ""; updateModelBtn();
       const msgs = p.messages || [];
       if (msgs.length) { const d = document.createElement("div"); d.className = "compacted-divider"; d.innerHTML = "<span>Restored previous conversation</span>"; els.messages.appendChild(d); }
       msgs.forEach((m) => {
@@ -563,6 +566,25 @@
   function fmt(n) { n = +n || 0; if (n >= 1e6) return (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return (n / 1e3).toFixed(1) + "k"; return String(n); }
   function modeName(id) { const m = modes.find((x) => x.id === id); return m ? m.name : id; }
   function updateModeLabel() { els.modeLabel.textContent = modeName(cur.mode).replace(/ mode$/i, "").replace("Edit automatically", "Auto-edit").replace("Ask before edits", "Ask"); }
+  // The model picker is labelled with the model itself — "Opus 5 (1M)" — the way the VS Code panel
+  // labels it, so what is answering is visible without opening the picker. Prefer the id the CLI
+  // reported the alias resolved to: that IS the model that ran the last turn. Before a session has
+  // reported one, fall back to the picker row's hardcoded label, then to the raw id.
+  function shortModel(s) { return String(s || "").replace(/\s*with 1M context$/i, " (1M)").trim(); }
+  // prettyModel() keeps the family and the version digits, which reads well for a known id but
+  // silently truncates an unfamiliar one ("some-weird-thing" -> "Some"). Show those verbatim.
+  function modelDisplay(id) {
+    const rest = String(id || "").replace(/\[1m\]/ig, "").replace(/^claude-/i, "").split("-").slice(1);
+    const lossy = rest.some((x) => x.length && !/^\d+$/.test(x));
+    return (!lossy && prettyModel(id)) || String(id || "");
+  }
+  function updateModelBtn() {
+    const row = models.find((m) => m.id === cur.model);
+    const name = shortModel(ctx.model ? modelDisplay(ctx.model)
+      : (row ? (row.label || row.name) : modelDisplay(cur.model)));
+    els.modelBtn.textContent = (name || "Model") + " ▾";
+    els.modelBtn.title = "Model: " + (ctx.model || own(MODEL_WIRE, cur.model) || cur.model) + " — click to change model & effort";
+  }
   function applyThinkingVisibility() {
     els.messages.classList.toggle("hide-thinking", !thinkingVisible);
   }
@@ -635,7 +657,7 @@
   // Picking a different model changes the window (1M Opus -> 200k Sonnet), but the CLI only says
   // so on the next `result`. Drop the reported value so ctxWindow() follows the new selection
   // right away instead of measuring against the old model's window for one turn.
-  function onModelSwitched() { ctx.windowReported = false; ctx.model = ""; updateRing(); if (topOpen === "context") renderContext(); }
+  function onModelSwitched() { ctx.windowReported = false; ctx.model = ""; updateModelBtn(); updateRing(); if (topOpen === "context") renderContext(); }
   function updateRing() {
     const win = ctxWindow();
     const C = 94.2; const frac = win ? Math.min(1, ctx.used / win) : 0;

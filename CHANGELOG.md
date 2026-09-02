@@ -7,6 +7,22 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.14] - 2026-09-02
+
+- **The model picker says which model is answering.** The button read "Model" whatever was running,
+  so the only way to find out was to open the picker - and even that showed the selection rather
+  than what it resolved to, which for "Default" is whichever model the CLI currently maps the alias
+  to. It now reads the model itself - "Opus 5 (1M)", "Sonnet 5" - the way the VS Code panel labels
+  it, taken from the id the CLI reports it actually ran the turn with, so it is the model that
+  answered and not a guess. Before a session has reported one the selected row's own label fills
+  in, the full wire id sits on the tooltip, and an id the extension does not recognise is shown
+  verbatim instead of being trimmed to its first word.
+- **The context ring is green.** It was drawn in the brand orange, the same colour as the Send
+  button sitting beside it, which reads as a warning on a gauge that spends nearly all its time
+  reporting a healthy, mostly-empty context window. The ring now has a colour of its own - a light
+  green chosen to stay legible against the panel without competing with the button next to it -
+  rather than borrowing the accent every other control uses.
+
 ## [1.0.13] - 2026-08-26
 
 - **A conversation the CLI can no longer find no longer breaks every message.** The extension
