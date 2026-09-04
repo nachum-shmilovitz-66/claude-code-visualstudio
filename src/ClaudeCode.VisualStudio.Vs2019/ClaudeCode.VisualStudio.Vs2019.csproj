@@ -99,6 +99,9 @@
     <Compile Include="..\ClaudeCode.VisualStudio\WebView\WebViewHost.cs">
       <Link>WebView\WebViewHost.cs</Link>
     </Compile>
+    <Compile Include="..\ClaudeCode.VisualStudio\WebView\BoundedMessageQueue.cs">
+      <Link>WebView\BoundedMessageQueue.cs</Link>
+    </Compile>
     <Compile Include="..\ClaudeCode.VisualStudio\WebView\WebMessage.cs">
       <Link>WebView\WebMessage.cs</Link>
     </Compile>

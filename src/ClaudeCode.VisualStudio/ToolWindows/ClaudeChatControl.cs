@@ -1372,7 +1372,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.16",
+                version = "1.0.15",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,

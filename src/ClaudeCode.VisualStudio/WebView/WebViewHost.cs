@@ -142,6 +142,15 @@ namespace ClaudeCode.VisualStudio.WebView
 
         private void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
+            // The page has spoken, so the WebView is alive: anything that piled up while it was
+            // being re-created can go out now. This is the trigger that matters after a re-create —
+            // the page's own "ready" arrives here before anything else tries to post.
+            if (_pending.Count > 0)
+            {
+                var core = TryGetCore();
+                if (core != null) FlushPending(core);
+            }
+
             string json;
             try
             {
@@ -195,28 +204,96 @@ namespace ClaudeCode.VisualStudio.WebView
             }).FireAndForget();
         }
 
+        /// <summary>
+        /// Messages posted while the WebView was unavailable, replayed when it comes back.
+        /// <para>
+        /// The control is not always there to post to: it is still booting early in the load, and
+        /// Visual Studio disposes and re-creates it while it settles the window layout at startup.
+        /// Both used to end the same way — the message was thrown away, the disposed case logged as
+        /// "PostRaw EXCEPTION: Cannot access a disposed object", which reads like a crash for what
+        /// is an ordinary race. A dropped message is a rendering that never happens: a lost
+        /// <c>setup</c> is a banner that never appears, a lost <c>restore</c> an empty transcript.
+        /// </para>
+        /// </summary>
+        private readonly BoundedMessageQueue _pending = new BoundedMessageQueue(200);
+
         private void PostRaw(string json)
+        {
+            var core = TryGetCore();
+            if (core == null)
+            {
+                _pending.Enqueue(json);
+                Services.Log.Write("PostRaw: WebView unavailable, queued (" + _pending.Count + " waiting)");
+                Services.Log.WriteVerbose("PostRaw queued: " + Head(json));
+                return;
+            }
+
+            // Drain first, so a replayed message never overtakes the one that triggered the drain.
+            FlushPending(core);
+            if (!TryPost(core, json))
+            {
+                _pending.Enqueue(json);
+                Services.Log.Write("PostRaw: WebView went away mid-post, queued (" + _pending.Count + " waiting)");
+            }
+        }
+
+        /// <summary>
+        /// Replay whatever is waiting. Called on any inbound message too: the page speaking is
+        /// proof the WebView is alive again, and without that trigger a queue filled during a
+        /// re-create would sit there until something else happened to be posted.
+        /// </summary>
+        private void FlushPending(CoreWebView2 core)
+        {
+            if (_pending.Count == 0) return;
+
+            int sent = 0;
+            while (_pending.TryDequeue(out var queued))
+            {
+                if (!TryPost(core, queued))
+                {
+                    _pending.PushFront(queued);   // still not there; keep it for the next attempt
+                    break;
+                }
+                sent++;
+            }
+
+            if (sent > 0)
+            {
+                Services.Log.Write("PostRaw: replayed " + sent + " queued message(s)" +
+                                   (_pending.DroppedCount > 0 ? ", " + _pending.DroppedCount + " dropped at the cap" : ""));
+            }
+        }
+
+        /// <summary>The core, or null when the control is not there to ask — booting, or disposed.</summary>
+        private CoreWebView2 TryGetCore()
+        {
+            try { return _webView.CoreWebView2; }
+            catch (ObjectDisposedException) { return null; }
+        }
+
+        /// <summary>True when the message was handed over, or failed for a reason retrying cannot fix.</summary>
+        private bool TryPost(CoreWebView2 core, string json)
         {
             try
             {
-                var core = _webView.CoreWebView2;
-                if (core == null)
-                {
-                    Services.Log.Write("PostRaw: CoreWebView2 NULL, dropping message");
-                    Services.Log.WriteVerbose("PostRaw dropped: " + Head(json));
-                    return;
-                }
                 core.PostWebMessageAsJson(json);
                 // Security: the envelope head carries message content — assistant text, account
                 // details (the accountData envelope reaches the email inside 80 chars). Gate it
                 // behind Verbose so Release builds stay quiet, per the Log policy.
                 Services.Log.WriteVerbose("PostRaw OK " + Head(json));
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;   // the control went away under us — worth queueing and retrying
             }
             catch (Exception ex)
             {
-                // The failure itself is worth recording unconditionally; the payload is not.
+                // A real failure. Record it, but do not queue: retrying malformed or rejected
+                // content would replay the same failure for ever.
                 Services.Log.Write("PostRaw EXCEPTION: " + ex.Message);
                 Services.Log.WriteVerbose("PostRaw EXCEPTION payload: " + Head(json));
+                return true;
             }
         }
 

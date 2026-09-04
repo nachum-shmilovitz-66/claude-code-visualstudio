@@ -7,7 +7,7 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
-## [1.0.16] - 2026-09-04
+## [1.0.15] - 2026-09-04
 
 - **Suggested commands have a copy button.** A fenced code block was plain text with no control on
   it, so taking a command Claude suggested meant selecting it by hand - awkward in a narrow panel,
@@ -42,7 +42,19 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
   the copy button, the markdown renderer including the URL-scheme filtering applied to untrusted
   model output, Edit/MultiEdit/Write diffs, the setup and CLI-update banner, the context ring, the
   model button, permission mode and transcript restore. It runs inside the normal test pass, so one
-  run covers C# and JavaScript together. 97 tests pass, up from 46.
+  run covers C# and JavaScript together. 106 tests pass, up from 46.
+
+- **Messages to the panel are no longer lost while Visual Studio settles its layout.** Everything
+  the extension shows - a transcript restore, a setup status, a streamed reply - is a message posted
+  to the WebView, and posting had no answer for the control not being there. It is still booting
+  early in the load, and VS disposes and re-creates it while it works out the window layout at
+  startup; a message landing in either window was thrown away, the second case logged as "PostRaw
+  EXCEPTION: Cannot access a disposed object", which reads like a crash for what is an ordinary
+  race. A dropped message is a rendering that never happens - a lost setup is a banner that never
+  appears, a lost restore an empty transcript. Undeliverable messages are now held and replayed in
+  order as soon as the page speaks again, capped at 200 so a tool window closed mid-turn cannot grow
+  the queue for the rest of the session; at the cap the oldest goes, since the newest state is the
+  one worth showing.
 
 ## [1.0.14] - 2026-09-02
 

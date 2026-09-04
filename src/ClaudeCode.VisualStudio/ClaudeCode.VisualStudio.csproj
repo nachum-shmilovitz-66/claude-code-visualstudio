@@ -72,6 +72,7 @@
     <Compile Include="ToolWindows\ClaudeChatToolWindow.cs" />
     <Compile Include="ToolWindows\ClaudeChatControl.cs" />
     <Compile Include="WebView\WebViewHost.cs" />
+    <Compile Include="WebView\BoundedMessageQueue.cs" />
     <Compile Include="WebView\WebMessage.cs" />
     <Compile Include="Services\Log.cs" />
     <Compile Include="Services\Perf.cs" />
