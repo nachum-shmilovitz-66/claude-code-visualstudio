@@ -33,6 +33,24 @@
     return s;
   }
 
+  // A fenced block renders as a header bar (language on the left, a copy button on the right)
+  // sitting on top of the <pre>. The button is always visible rather than hover-only: the point
+  // of it is that a suggested command can be taken without hand-selecting the text, and on a
+  // narrow tool window a control that only appears on hover is one nobody finds. app.js owns the
+  // click, delegated -- streaming rewrites this markup on every chunk, so a listener bound here
+  // would end up on a node that is already gone.
+  const COPY_ICON =
+    '<svg class="cico" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">' +
+    '<path d="M5.5 3.5h7a1 1 0 0 1 1 1v7" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />' +
+    '<rect x="2.5" y="5.5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>';
+
+  function codeBlock(lang, code) {
+    return '<div class="cblock"><div class="cbar"><span class="clang">' + esc(lang) + '</span>' +
+      '<button type="button" class="ccopy" title="Copy code">' + COPY_ICON +
+      '<span class="clabel">Copy</span></button></div>' +
+      '<pre data-lang="' + esc(lang) + '"><code>' + esc(code) + '</code></pre></div>';
+  }
+
   function render(md) {
     // Security: inline() round-trips code spans through a \u0000-delimited placeholder, and esc()
     // does not escape \u0000 — so text arriving with a literal NUL (JSON carries it fine) could
@@ -60,7 +78,7 @@
         i++;
         while (i < lines.length && !/^```\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
         i++; // skip closing fence
-        html += '<pre data-lang="' + esc(lang) + '"><code>' + esc(buf.join("\n")) + "</code></pre>";
+        html += codeBlock(lang, buf.join("\n"));
         continue;
       }
 

@@ -13,7 +13,7 @@ namespace ClaudeCode.VisualStudio
     /// command that opens it. Loads in the background once the shell is ready.
     /// </summary>
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-    [InstalledProductRegistration("Claude Code", "Agentic coding assistant for Visual Studio.", "1.0.14")]
+    [InstalledProductRegistration("Claude Code", "Agentic coding assistant for Visual Studio.", "1.0.16")]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     // Dock as a tab next to Solution Explorer (its window GUID), instead of a free-floating right pane.
     [ProvideToolWindow(typeof(ClaudeChatToolWindow.Pane), Style = VsDockStyle.Tabbed, Window = "3AE79031-E1BC-11D0-8F78-00A0C9110057")]

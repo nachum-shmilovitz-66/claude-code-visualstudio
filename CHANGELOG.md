@@ -7,6 +7,43 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.16] - 2026-09-04
+
+- **Suggested commands have a copy button.** A fenced code block was plain text with no control on
+  it, so taking a command Claude suggested meant selecting it by hand - awkward in a narrow panel,
+  and easy to get wrong at the edges of a multi-line block. Each block now carries a bar naming its
+  language with a Copy button on the right. The bar sits above the code rather than floating over
+  its top-right corner, so it never covers the first line and never scrolls away when a long command
+  scrolls sideways, and the button is always visible rather than appearing on hover - in a panel
+  this narrow a hover-revealed control is one nobody finds. What lands on the clipboard is the code
+  exactly as written, quotes and ampersands included, not the HTML-escaped form the page renders.
+
+- **The hourly check for a newer CLI survives hiding the panel.** The check was meant to run every
+  hour for as long as Visual Studio stayed open, so a CLI release that landed mid-session was
+  noticed. Hiding the chat panel - or just switching to another tool window in the same tab group -
+  unloads the control, which stopped the timer and left the stopped timer in place; the code that
+  restarts it treats an existing timer as proof one is already running, so the check never came
+  back for the rest of the session. In practice the banner only ever appeared at startup. The timer
+  is now cleared when it stops and re-armed when the panel loads again, and it carries its clock
+  across the gap: a panel hidden for ten minutes resumes the original schedule, one hidden for
+  longer than an hour is due within seconds of coming back.
+
+- **The update check can be exercised without waiting an hour.** With a healthy CLI there is no
+  banner, and Re-check lives on the banner, so nothing could force a check on a running instance -
+  the only way to see the feature work was to restart Visual Studio, which is exactly what hides
+  the bug above. `CLAUDE_CODE_VS_CHECK_MS` now overrides the interval, floored at ten seconds so a
+  typo cannot turn the check into a loop that spawns a process and a network call, and re-read each
+  time the timer arms so a new value is picked up by hiding and showing the panel.
+
+- **The chat panel's JavaScript has unit tests.** `media/app.js` and `media/markdown.js` had none:
+  Release builds disable DevTools, so a bug there is invisible from inside Visual Studio and was
+  found only when a user hit it. There is now a suite at `tests/webview` - a small DOM and a `vm`
+  harness that boots the shipped `index.html` with the real scripts, no npm dependencies - covering
+  the copy button, the markdown renderer including the URL-scheme filtering applied to untrusted
+  model output, Edit/MultiEdit/Write diffs, the setup and CLI-update banner, the context ring, the
+  model button, permission mode and transcript restore. It runs inside the normal test pass, so one
+  run covers C# and JavaScript together. 97 tests pass, up from 46.
+
 ## [1.0.14] - 2026-09-02
 
 - **The model picker says which model is answering.** The button read "Model" whatever was running,

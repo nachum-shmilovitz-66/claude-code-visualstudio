@@ -99,6 +99,23 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .node-main th, .node-main td { border: 1px solid var(--border); padding: 6px 10px; }
 .node-main th { background: var(--code-bg); font-weight: 600; }
 
+/* Fenced code blocks — a header bar over the <pre> carrying the language and a Copy button, so a
+   suggested command can be lifted without hand-selecting it. Deliberately always visible rather
+   than revealed on hover: in a tool window this narrow, a control that only appears under the
+   pointer is one nobody finds. The bar borrows .diff .dhead's look so the two read as a set. */
+.cblock { margin: 8px 0; }
+.cbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 8px; background: var(--bg-input); border: 1px solid var(--border); border-bottom: 0; border-radius: 4px 4px 0 0; }
+.cbar .clang { font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ccopy { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; background: transparent; border: 0; border-radius: 3px; padding: 2px 6px; color: var(--fg-dim); font-family: inherit; font-size: 11px; line-height: 1.4; cursor: pointer; }
+.ccopy:hover { background: var(--bg-alt); color: var(--fg); }
+.ccopy:focus-visible { outline: 1px solid var(--fg-dim); }
+.ccopy .cico { flex: 0 0 auto; }
+.ccopy.copied { color: var(--green); }
+.ccopy.failed { color: var(--red); }
+/* The <pre> keeps its own border and butts up under the bar. Both containers are listed because
+   .msg .bubble pre outweighs a bare .cblock pre. */
+.node-main .cblock pre, .msg .bubble .cblock pre { margin: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+
 /* Tool cards — borderless like the VS Code panel: the timeline rail is the only chrome, so a
    tool call reads as a line of text (bold name + dim monospace argument) rather than a boxed card. */
 .tool { border: 0; border-radius: 0; background: transparent; overflow: visible; }

@@ -48,6 +48,7 @@ namespace ClaudeCode.VisualStudio
         private bool _updateWatchRunning;     // polling for a `claude update` to land
         private bool _updateRunning;          // a background `claude update` process is in flight
         private System.Threading.Timer _cliCheckTimer;   // hourly re-check for a newer CLI
+        private DateTime _lastCliCheckUtc = DateTime.MinValue;   // when that check last completed
 
         // Working directory for claude. Defaults to the user profile and is upgraded to the
         // solution directory once known. Cached so the send path never blocks on VS services.
@@ -68,7 +69,20 @@ namespace ClaudeCode.VisualStudio
             _theme.ThemeChanged += vars => _host.PostMessage("theme", vars);
 
             Loaded += OnLoaded;
-            Unloaded += (s, e) => { UnhookSolutionLoad(); _cliCheckTimer?.Dispose(); _session?.Dispose(); };
+            // Hiding the panel or switching away from its tab unloads the control, and showing it
+            // again loads it back. OnLoaded unsubscribes itself (it is the one-time boot), so this
+            // second handler is what survives the cycle and puts the CLI check back on the clock.
+            Loaded += (s, e) => StartPeriodicCliCheck();
+            Unloaded += (s, e) =>
+            {
+                UnhookSolutionLoad();
+                // Clear the field, don't just dispose it: StartPeriodicCliCheck() treats a non-null
+                // timer as "already running", so leaving a disposed one behind killed the hourly
+                // check for the rest of the VS session the first time the panel was hidden.
+                var timer = System.Threading.Interlocked.Exchange(ref _cliCheckTimer, null);
+                timer?.Dispose();
+                _session?.Dispose();
+            };
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD100:Avoid async void methods", Justification = "Event handler")]
@@ -644,6 +658,7 @@ namespace ClaudeCode.VisualStudio
                     });
 
                     // Keep checking for the rest of the VS session, not just at startup.
+                    _lastCliCheckUtc = DateTime.UtcNow;
                     StartPeriodicCliCheck();
                 }
                 catch (Exception ex) { Log.Write("SendSetupStatus: " + ex.Message); }
@@ -651,7 +666,54 @@ namespace ClaudeCode.VisualStudio
         }
 
         // How often to re-ask, while VS stays open, whether a newer CLI has shipped.
-        private const int CliCheckIntervalMs = 60 * 60 * 1000;   // 1 hour
+        internal const int CliCheckIntervalMs = 60 * 60 * 1000;   // 1 hour
+
+        /// <summary>
+        /// Test override for that interval, in milliseconds: <c>CLAUDE_CODE_VS_CHECK_MS</c>.
+        /// <para>
+        /// Without it the update banner cannot be exercised on a running VS at all — the hourly tick
+        /// is the only trigger while the panel is healthy (Re-check exists only once a banner is
+        /// already showing), so verifying a change meant waiting an hour or restarting VS, and
+        /// restarting hides the very regression worth testing. Set it to 60000, downgrade the CLI,
+        /// and the banner should appear within the minute — including after hiding and re-showing
+        /// the panel, which is what used to kill the timer for good.
+        /// </para>
+        /// <para>Floored at 10s so a typo cannot turn the check into a process-spawning hot loop.</para>
+        /// </summary>
+        internal static int ResolveCliCheckIntervalMs(string raw)
+        {
+            const int MinMs = 10 * 1000;
+            const int MaxMs = 24 * 60 * 60 * 1000;
+            if (string.IsNullOrWhiteSpace(raw)) return CliCheckIntervalMs;
+            if (!int.TryParse(raw.Trim(), System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.InvariantCulture, out var ms))
+                return CliCheckIntervalMs;
+            if (ms < MinMs) return MinMs;
+            return ms > MaxMs ? MaxMs : ms;
+        }
+
+        /// <summary>
+        /// How long the re-armed timer should wait before its first tick, given when the last check
+        /// actually ran. Hiding the panel unloads the control and stops the timer, so re-arming with
+        /// a flat hour would let a panel that is hidden and shown every few minutes go for ever
+        /// without a check — the clock has to carry across the gap. A panel hidden for longer than
+        /// the interval is due immediately, subject to a small floor so a re-dock does not fire a
+        /// process + network call in the middle of the layout churn.
+        /// </summary>
+        internal static int NextCliCheckDelayMs(DateTime lastCheckUtc, DateTime nowUtc, int intervalMs)
+        {
+            const int FloorMs = 5000;
+            if (lastCheckUtc == DateTime.MinValue) return intervalMs;
+
+            var elapsed = nowUtc - lastCheckUtc;
+            // A clock that jumped backwards (or a last-check stamp from the future) must not park
+            // the timer beyond its interval.
+            if (elapsed < TimeSpan.Zero) return intervalMs;
+
+            var remaining = intervalMs - elapsed.TotalMilliseconds;
+            if (remaining <= FloorMs) return FloorMs;
+            return remaining >= intervalMs ? intervalMs : (int)remaining;
+        }
 
         /// <summary>
         /// Re-run the setup/version check every hour for as long as the window lives.
@@ -671,6 +733,15 @@ namespace ClaudeCode.VisualStudio
         private void StartPeriodicCliCheck()
         {
             if (_cliCheckTimer != null) return;
+            // Nothing has checked yet: the load path is mid-check and will arm this itself.
+            if (_lastCliCheckUtc == DateTime.MinValue) return;
+
+            // Read the interval each time the timer is armed, so changing the override and then
+            // hiding/showing the panel picks it up without restarting VS.
+            var interval = ResolveCliCheckIntervalMs(Environment.GetEnvironmentVariable("CLAUDE_CODE_VS_CHECK_MS"));
+            var due = NextCliCheckDelayMs(_lastCliCheckUtc, DateTime.UtcNow, interval);
+            if (interval != CliCheckIntervalMs)
+                Log.Write("cli check: interval override " + interval + "ms, first tick in " + due + "ms");
 
             var timer = new System.Threading.Timer(_ =>
             {
@@ -682,7 +753,7 @@ namespace ClaudeCode.VisualStudio
                 // Forced: the npm "latest" is cached for the process lifetime, and re-reading the
                 // same cached answer every hour would defeat the point of checking at all.
                 SendSetupStatus(forceRefresh: true, periodic: true);
-            }, null, CliCheckIntervalMs, CliCheckIntervalMs);
+            }, null, due, interval);
 
             // Two status runs can reach this at once (init racing a re-check); keep the first.
             if (System.Threading.Interlocked.CompareExchange(ref _cliCheckTimer, timer, null) != null)
@@ -721,7 +792,7 @@ namespace ClaudeCode.VisualStudio
         // clicking "Update CLI" would install, and a stable-channel user measured against the
         // latest head gets a prompt that updating can never satisfy - stable trails latest by
         // about a week, so the banner would reappear for ever, every hour, on an up-to-date CLI.
-        private static string GetUpdateChannel()
+        internal static string GetUpdateChannel()
         {
             try
             {
@@ -786,7 +857,7 @@ namespace ClaudeCode.VisualStudio
         }
 
         // True only when both versions parse and latest > installed (numeric major.minor.patch).
-        private static bool IsCliOutdated(string installed, string latest)
+        internal static bool IsCliOutdated(string installed, string latest)
         {
             var a = ParseVersion(installed);
             var b = ParseVersion(latest);
@@ -1301,7 +1372,7 @@ namespace ClaudeCode.VisualStudio
         {
             _host.PostMessage("init", new
             {
-                version = "1.0.14",
+                version = "1.0.16",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,

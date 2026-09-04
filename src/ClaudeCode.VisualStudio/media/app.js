@@ -767,6 +767,55 @@
     }
   });
 
+  // ---- copy button on fenced code blocks ----
+  // Delegated from #messages rather than bound per button: streaming re-renders the whole markdown
+  // of the current message on every chunk, so a listener attached to a button would be left holding
+  // a node that has already been thrown away.
+  els.messages.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest(".ccopy");
+    if (!btn) return;
+    e.preventDefault(); e.stopPropagation();
+    const block = btn.closest(".cblock");
+    const code = block && block.querySelector("pre code");
+    if (!code) return;
+    copyText(code.textContent || "").then((ok) => flashCopy(btn, ok));
+  });
+
+  function copyText(text) {
+    // The panel is served from https://claudecode.local, a secure origin, so the async clipboard
+    // API is available here. The execCommand path stays as a fallback anyway: a copy button that
+    // silently does nothing is worse than no button at all.
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(() => true, () => legacyCopy(text));
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+
+  function legacyCopy(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.appendChild(ta);
+    const active = document.activeElement;
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+    ta.remove();
+    if (active && active.focus) active.focus();
+    return ok;
+  }
+
+  function flashCopy(btn, ok) {
+    const lbl = btn.querySelector(".clabel");
+    if (!lbl) return;
+    btn.classList.remove("copied", "failed");
+    btn.classList.add(ok ? "copied" : "failed");
+    lbl.textContent = ok ? "Copied" : "Failed";
+    clearTimeout(btn.copyTimer);
+    btn.copyTimer = setTimeout(() => { btn.classList.remove("copied", "failed"); lbl.textContent = "Copy"; }, 1400);
+  }
+
   els.sendBtn.addEventListener("click", send);
   els.stopBtn.addEventListener("click", () => post("interrupt"));
   els.ringBtn.addEventListener("click", () => { closeAll(); post("compact"); showThinking("Compacting"); });
