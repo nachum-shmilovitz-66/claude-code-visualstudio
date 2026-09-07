@@ -1,6 +1,6 @@
 ﻿# Claude Code for Visual Studio
 
-> **Latest release:** <!-- managed:version -->v1.0.15<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
+> **Latest release:** <!-- managed:version -->v1.0.17<!-- /managed:version --> — [download the VSIX from Releases](https://github.com/nachum-shmilovitz-66/claude-code-visualstudio/releases/latest)
 
 Brings the [Claude Code](https://www.anthropic.com/claude-code) agentic coding assistant into
 **Visual Studio 2026, 2022, 2019, and 2017** as a native tool-window chat — the same kind of
@@ -186,14 +186,17 @@ directory** and restored next time you open the panel.
 |---|---|---|
 | **Default** | Latest Opus with 1M context — most capable for complex work | Off · Low · Medium · High · Extra high · Max · Ultracode |
 | **Fable** | Anthropic's newest, strongest coding model | Off · Low · Medium · High · Extra high · Max · Ultracode |
-| **Sonnet** | Best for everyday tasks | Off · Low · Medium · High · Max |
+| **Sonnet** | Best for everyday tasks | Off · Low · Medium · High · Extra high · Max |
 | **Haiku** | Fastest for quick answers | Off · Low · Medium · High |
 | **Custom model…** | Type any model id or alias (e.g. `claude-opus-4-7[1m]`, dated snapshots, `[1m]` variants); availability depends on your CLI/account | inherits the Default range |
 
-The four built-in entries send **aliases** (`opus[1m]`, `fable`, `sonnet`, `haiku`), not pinned model
-ids, so each one follows the newest model in its family as soon as your Claude Code CLI supports it —
-no extension update required. The picker shows the id the CLI actually resolved next to the selected
-entry once a session has started.
+The built-in rows are **the list your Claude Code CLI reports** — the same one its own `/model` picker
+shows, with the current model names, the id each row resolves to and the effort levels each supports —
+so a new model release shows up here as soon as you update the CLI, with no extension update. The
+list is fetched at startup (and again after an in-panel CLI update) and cached, so the picker is right
+the moment the panel opens; until the first fetch lands, a built-in fallback offers the same families
+by alias (`opus[1m]`, `fable`, `sonnet`, `haiku`). Effort levels other than Ultracode follow what the
+CLI reports for each model.
 
 Effort maps to extended-thinking token budget; **Ultracode** adds multi-agent workflows on top of the
 highest thinking level.

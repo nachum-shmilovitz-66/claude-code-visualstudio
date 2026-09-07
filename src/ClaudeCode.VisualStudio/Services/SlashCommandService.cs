@@ -7,21 +7,50 @@ using System.Threading.Tasks;
 
 namespace ClaudeCode.VisualStudio.Services
 {
+    /// <summary>What one startup probe of the CLI found.</summary>
+    public sealed class CliProbeResult
+    {
+        /// <summary>The full slash-command set, as bare names. Empty when the probe failed.</summary>
+        public List<string> Commands = new List<string>();
+
+        /// <summary>
+        /// The model picker rows the CLI offers, or null when it did not answer the initialize
+        /// request (an older CLI, a failed launch) - in which case the caller keeps what it has.
+        /// </summary>
+        public List<CliModelInfo> Models;
+    }
+
     /// <summary>
-    /// Fetches the CLI's full slash-command set out-of-band, before the first chat turn.
-    /// The set is only carried on the <c>system/init</c> event, which the CLI emits only
-    /// after it receives the first stdin message — not at startup. So this spins up a
-    /// short-lived throwaway <c>claude</c> in stream-json mode, writes a single empty user
-    /// message purely to trigger init, reads <c>slash_commands</c> off that init line, then
-    /// kills the process before the model turn runs (no token cost, separate from the user's
-    /// real session). Lets the slash palette show the complete set (incl. project
-    /// <c>.claude/commands</c>) up front, instead of only the built-ins until the first turn.
+    /// Fetches the CLI's full slash-command set and model list out-of-band, before the first chat
+    /// turn. Neither is available at startup: the command set is only carried on the
+    /// <c>system/init</c> event, which the CLI emits only after it receives the first stdin
+    /// message, and the model list only on the reply to an <c>initialize</c> control request. So
+    /// this spins up a short-lived throwaway <c>claude</c> in stream-json mode, writes the
+    /// initialize request and a single empty user message (purely to trigger init), reads
+    /// <c>models</c> off the control response and <c>slash_commands</c> off the init line, then
+    /// kills the process before the model turn runs (no token cost, separate from the user's real
+    /// session). Lets the slash palette show the complete set (incl. project
+    /// <c>.claude/commands</c>) and the picker show the models the CLI actually has - with their
+    /// current names - up front, instead of the built-ins until the first turn.
     /// </summary>
     public static class SlashCommandService
     {
+        // How long to keep waiting for the control response once the init line is in hand. The
+        // CLI normally answers the initialize request first, so this rarely runs; it only bounds
+        // the wait on a CLI that never answers, so a missing model list cannot hold up the palette.
+        private const int ModelsGraceMs = 2000;
+
+        /// <summary>Commands only; see <see cref="ProbeAsync"/>.</summary>
         public static async Task<List<string>> ListAsync(string workingDir, int timeoutMs = 20000)
         {
-            var result = new List<string>();
+            var r = await ProbeAsync(workingDir, timeoutMs).ConfigureAwait(false);
+            return r.Commands;
+        }
+
+        public static async Task<CliProbeResult> ProbeAsync(string workingDir, int timeoutMs = 20000)
+        {
+            var result = new CliProbeResult();
+            var models = new List<CliModelInfo>();
             try
             {
                 var cli = ClaudeCliLocator.Locate();
@@ -29,7 +58,7 @@ namespace ClaudeCode.VisualStudio.Services
                 {
                     FileName = cli.FileName,
                     // Same machine-readable session shape as ClaudeSession, minus model/permission
-                    // flags (the slash-command set does not depend on them).
+                    // flags (neither list depends on them).
                     Arguments = cli.ArgumentPrefix +
                         "--print --input-format stream-json --output-format stream-json --verbose",
                     UseShellExecute = false,
@@ -50,10 +79,29 @@ namespace ClaudeCode.VisualStudio.Services
                 using (var proc = new Process { StartInfo = psi })
                 {
                     var done = new TaskCompletionSource<bool>();
+                    var gate = new object();
+                    bool initSeen = false, modelsSeen = false;
                     proc.OutputDataReceived += (s, e) =>
                     {
                         if (e.Data == null || done.Task.IsCompleted) return;
-                        if (TryParseInit(e.Data, result)) done.TrySetResult(true);
+                        bool finish = false, startGrace = false;
+                        lock (gate)
+                        {
+                            if (!modelsSeen && CliModelList.TryParseControlResponse(e.Data, models))
+                            {
+                                modelsSeen = true;
+                                finish = initSeen;
+                            }
+                            else if (!initSeen && TryParseInit(e.Data, result.Commands))
+                            {
+                                initSeen = true;
+                                finish = modelsSeen;
+                                startGrace = !modelsSeen;
+                            }
+                        }
+                        if (finish) done.TrySetResult(true);
+                        else if (startGrace)
+                            Task.Delay(ModelsGraceMs).ContinueWith(_ => done.TrySetResult(true));
                     };
                     proc.ErrorDataReceived += (s, e) => { if (e.Data != null) Log.WriteVerbose("slash init stderr: " + e.Data); };
 
@@ -61,29 +109,37 @@ namespace ClaudeCode.VisualStudio.Services
                     proc.BeginOutputReadLine();
                     proc.BeginErrorReadLine();
 
-                    // The CLI emits system/init only after it reads the first stdin message.
-                    // Send one empty user message to trigger it (newline-terminated, stdin left
-                    // open); we kill the process the moment init arrives (below), before any
-                    // model turn runs.
+                    // The model list comes back on the reply to an initialize request; the CLI
+                    // emits system/init only after it reads the first stdin message. Send both
+                    // (newline-terminated, stdin left open); the process is killed the moment
+                    // both replies are in (above), before any model turn runs.
                     try
                     {
                         await proc.StandardInput.WriteAsync(
+                            "{\"type\":\"control_request\",\"request_id\":\"req_probe_init\",\"request\":{\"subtype\":\"initialize\"}}\n" +
                             "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"\"}]}}\n");
                         await proc.StandardInput.FlushAsync();
                     }
                     catch (Exception ex) { Log.WriteVerbose("slash init stdin: " + ex.Message); }
 
-                    // Wait for the init line or the timeout, whichever comes first.
+                    // Wait for both replies or the timeout, whichever comes first.
                     var finished = await Task.WhenAny(done.Task, Task.Delay(timeoutMs));
                     if (finished != done.Task)
                         Log.Write("SlashCommandService: timed out after " + timeoutMs + "ms");
 
                     try { if (!proc.HasExited) proc.Kill(); } catch { }
+
+                    lock (gate)
+                    {
+                        if (modelsSeen && models.Count > 0) result.Models = new List<CliModelInfo>(models);
+                        else if (modelsSeen) Log.Write("SlashCommandService: CLI answered initialize without a usable model list");
+                        else Log.Write("SlashCommandService: no initialize reply (model list kept as is)");
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Log.Write("SlashCommandService.ListAsync: " + ex.Message);
+                Log.Write("SlashCommandService.ProbeAsync: " + ex.Message);
             }
             return result;
         }

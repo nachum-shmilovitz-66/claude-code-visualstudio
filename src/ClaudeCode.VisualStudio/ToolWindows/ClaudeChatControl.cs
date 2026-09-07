@@ -515,12 +515,16 @@ namespace ClaudeCode.VisualStudio
                     // 1) Instant fill from cache, or signal "loading" when the cache is cold.
                     long tc = Perf.Now;
                     var cached = SlashCommandCache.Load(_cwd);
+                    var cachedModels = ModelListCache.Load();
                     Perf.Step("commands: cache load", tc);
                     bool warm = cached != null && cached.Count > 0;
                     if (warm)
                         _host.PostMessage("commands", new { commands = cached });
                     else
                         _host.PostMessage("commandsLoading", new { on = true });
+                    // The picker opened on the fallback rows; the list the CLI reported last time
+                    // names the current models until the live probe below lands.
+                    if (cachedModels != null) PostModels(cachedModels, "cache");
 
                     // A warm cache means nothing is waiting on the refresh, so let the IDE finish
                     // starting before spending a CLI process on it. A cold cache is the opposite:
@@ -535,12 +539,18 @@ namespace ClaudeCode.VisualStudio
                     try
                     {
                         long tl = Perf.Now;
-                        var commands = await SlashCommandService.ListAsync(_cwd);
+                        var probe = await SlashCommandService.ProbeAsync(_cwd);
                         Perf.Step("commands: live CLI fetch", tl);
-                        if (commands.Count > 0)
+                        if (probe.Commands.Count > 0)
                         {
-                            SlashCommandCache.Save(_cwd, commands);
-                            _host.PostMessage("commands", new { commands = commands });
+                            SlashCommandCache.Save(_cwd, probe.Commands);
+                            _host.PostMessage("commands", new { commands = probe.Commands });
+                        }
+                        // The same probe answers with the models this CLI and account can use.
+                        if (probe.Models != null && probe.Models.Count > 0)
+                        {
+                            ModelListCache.Save(probe.Models);
+                            PostModels(probe.Models, "cli");
                         }
                     }
                     finally
@@ -1055,6 +1065,8 @@ namespace ClaudeCode.VisualStudio
                     changed = true,
                 });
                 SendSetupStatus(forceRefresh: true);
+                // A CLI release is when new models (and commands) arrive: re-read both from it.
+                SendCommands();
             });
         }
 
@@ -1342,63 +1354,38 @@ namespace ClaudeCode.VisualStudio
             catch (Exception ex) { Log.Write("GetAuthStatus: " + ex.Message); return null; }
         }
 
-        // Effort levels available per model. Opus and Fable expose the full extended-thinking
-        // range plus Ultracode workflows; Sonnet/Haiku expose progressively fewer.
-        private static object BuildEffortsByModel()
+        // The picker rows and their effort ranges. Replaces the fallback rows the init message
+        // carried with the list the CLI reported (`source` is "cache" or "cli", for the log).
+        private void PostModels(System.Collections.Generic.List<CliModelInfo> models, string source)
         {
-            var off = new { id = "none", name = "Off" };
-            var low = new { id = "low", name = "Low" };
-            var medium = new { id = "medium", name = "Medium" };
-            var high = new { id = "high", name = "High" };
-            var extrahigh = new { id = "extrahigh", name = "Extra high" };
-            var max = new { id = "max", name = "Max" };
-            var ultracode = new { id = "ultracode", name = "Ultracode" };
-
-            var opus = new object[] { off, low, medium, high, extrahigh, max, ultracode };
-            var sonnet = new object[] { off, low, medium, high, max };
-            var haiku = new object[] { off, low, medium, high };
-
-            return new System.Collections.Generic.Dictionary<string, object[]>
+            Log.Write("models: " + models.Count + " row(s) from " + source);
+            _host.PostMessage("models", new
             {
-                ["default"] = opus,
-                ["opus[1m]"] = opus,     // explicit Opus row; same range as Default
-                ["fable"] = opus,
-                ["sonnet"] = sonnet,
-                ["haiku"] = haiku,
-            };
+                models = models,
+                effortsByModel = CliModelList.EffortsByModel(models),
+                source = source,
+            });
         }
 
         private void SendInit()
         {
+            // Fallback rows only: SendCommands swaps in the CLI's own list (cached, then live).
+            var fallback = CliModelList.Fallback();
             _host.PostMessage("init", new
             {
-                version = "1.0.15",
+                version = "1.0.17",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
                 permissionMode = _permissionMode,
                 showThinking = _showThinking,
                 // Laid out like the VS Code panel: each row reads "<model> · <what it is for>",
-                // with an explicit Opus row alongside Default.
-                //
-                // `label` is only a FALLBACK for the model name. Every id is a CLI alias that
-                // resolves to the newest model in its family at launch, so a hardcoded "Opus 5"
-                // would go stale the day Opus 6 ships. app.js therefore replaces the label with
-                // the id the CLI actually resolved (from the session `init` event) as soon as it
-                // knows it — the label only shows before the first turn of a fresh install.
-                //
-                // ids double as the --model value, so they must stay valid CLI aliases.
-                // ratio = per-token price relative to Haiku (cheapest). Input and
-                // output prices scale by the same factor, so one number covers both:
-                // Haiku $1/$5, Sonnet $3/$15, Opus $5/$25, Fable $10/$50 per MTok.
-                models = new object[]
-                {
-                    new { id = "default",  name = "Default (recommended)", label = "Opus 5 with 1M context", desc = "Best for everyday, complex tasks", ratio = 5.0 },
-                    new { id = "opus[1m]", name = "Opus (1M context)",     label = "Opus 5 with 1M context", desc = "Best for everyday, complex tasks", ratio = 5.0 },
-                    new { id = "fable",    name = "Fable",                 label = "Fable 5",   desc = "Most capable for your hardest and longest-running tasks", ratio = 10.0 },
-                    new { id = "sonnet",   name = "Sonnet",                label = "Sonnet 5",  desc = "Efficient for routine tasks", ratio = 3.0 },
-                    new { id = "haiku",    name = "Haiku",                 label = "Haiku 4.5", desc = "Fastest for quick answers", ratio = 1.0 },
-                },
+                // with an explicit Opus row alongside Default. These are the hardcoded fallback
+                // rows (CLI aliases, no version numbers); the list the CLI itself reports — with
+                // the current names, ids and effort ranges — follows on a "models" message from
+                // SendCommands, first from cache and then live, so a new model release needs no
+                // extension update. See CliModelList.
+                models = fallback,
                 modes = new object[]
                 {
                     new { id = "default", name = "Ask before edits", desc = "Claude asks for approval before each edit", icon = "✋" },
@@ -1406,7 +1393,7 @@ namespace ClaudeCode.VisualStudio
                     new { id = "plan", name = "Plan mode", desc = "Explore and present a plan before editing", icon = "▤" },
                     new { id = "bypassPermissions", name = "Auto mode", desc = "Claude runs any tool automatically", icon = "⚡" },
                 },
-                effortsByModel = BuildEffortsByModel(),
+                effortsByModel = CliModelList.EffortsByModel(fallback),
             });
 
             ThreadHelper.JoinableTaskFactory.RunAsync(async () =>

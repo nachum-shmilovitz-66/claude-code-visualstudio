@@ -87,6 +87,8 @@
     <Compile Include="Services\McpService.cs" />
     <Compile Include="Services\SlashCommandService.cs" />
     <Compile Include="Services\SlashCommandCache.cs" />
+    <Compile Include="Services\CliModelList.cs" />
+    <Compile Include="Services\ModelListCache.cs" />
     <Compile Include="Services\SessionStore.cs" />
     <Compile Include="Services\InputValidation.cs" />
   </ItemGroup>

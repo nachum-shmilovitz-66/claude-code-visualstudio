@@ -7,6 +7,30 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.17] - 2026-09-07
+
+- **The model picker follows the CLI, so a new model needs no extension update.** The rows were
+  hardcoded, so the day Fable 5.1 shipped the VS Code panel listed it while this picker still said
+  "Fable 5", and the only fix was a rebuild - for every release, forever. The CLI already knows the
+  answer: its reply to the `initialize` request carries the same list its own `/model` picker
+  shows - current names, the id each row resolves to, the effort levels each supports, and which
+  rows can run Auto mode. The startup probe that already fetches the slash-command set now asks for
+  that list in the same throwaway process, relays it to the picker, and caches it so the rows are
+  right the moment the panel opens; an in-panel CLI update re-reads it. A selection stored under an
+  old alias ("fable") moves onto the CLI's row for that family, and a pinned id stays as typed. The
+  fallback rows shown before the first fetch carry no version numbers, so nothing is left to go
+  stale. Sonnet's effort range gains Extra high, which the CLI reports it supports.
+
+- **Fable is reachable in the custom-model quick-picks.** The shortcuts under "Custom model" list
+  what the main picker does not already offer in one click, and they listed only Opus and Sonnet -
+  so the previous Fable generation could only be reached by typing its id from memory, and once the
+  CLI started pinning its Fable row to a specific version the always-newest `fable` alias stopped
+  being one click too. Both are now on the list. This half of the picker stays hand-kept on purpose:
+  the CLI reports the models it currently offers and never a superseded one, so a list of pinned
+  older ids cannot come from it. What it does now do is decide what to hide - any shortcut the main
+  picker already offers, matched on the row id or on the id that row resolves to, drops off the list
+  by itself rather than being pruned by hand.
+
 ## [1.0.15] - 2026-09-04
 
 - **Suggested commands have a copy button.** A fenced code block was plain text with no control on

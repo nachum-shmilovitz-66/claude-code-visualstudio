@@ -144,6 +144,12 @@
     <Compile Include="..\ClaudeCode.VisualStudio\Services\SlashCommandCache.cs">
       <Link>Services\SlashCommandCache.cs</Link>
     </Compile>
+    <Compile Include="..\ClaudeCode.VisualStudio\Services\CliModelList.cs">
+      <Link>Services\CliModelList.cs</Link>
+    </Compile>
+    <Compile Include="..\ClaudeCode.VisualStudio\Services\ModelListCache.cs">
+      <Link>Services\ModelListCache.cs</Link>
+    </Compile>
     <Compile Include="..\ClaudeCode.VisualStudio\Services\SessionStore.cs">
       <Link>Services\SessionStore.cs</Link>
     </Compile>

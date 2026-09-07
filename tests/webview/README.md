@@ -40,6 +40,7 @@ delivers a host → page message the way `WebViewHost.PostWebMessageAsJson` does
 | `diff.test.js` | Edit / MultiEdit / Write tool cards rendered as real diffs, char-level marks, truncation | v1.0.10–11 |
 | `setup-banner.test.js` | CLI missing / signed out / update reminder, and the `periodic` flag that un-snoozes a dismiss | v1.0.9–13 |
 | `panel-state.test.js` | Context ring and its window, model button naming, live permission-mode switch, transcript restore | v1.0.5–14 |
+| `model-list.test.js` | The picker following the CLI's model list: renamed rows, a stored alias moving onto the CLI's row, effort range and Auto-mode gating per row, Fable's 1M window | unreleased |
 
 ## Adding a test
 

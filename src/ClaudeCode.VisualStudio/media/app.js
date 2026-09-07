@@ -346,6 +346,7 @@
       if (p.permissionMode) cur.mode = p.permissionMode;
       if (p.effort) cur.effort = p.effort;
       if (typeof p.showThinking === "boolean") thinkingVisible = p.showThinking;
+      reconcileModelId();
       applyEffortsForModel();
       updateModeLabel();
       updateModelBtn();
@@ -353,6 +354,18 @@
     },
     commands: (p) => { slashCommands = p.commands || []; commandsLoading = false; if (cOpen === "slash") { const q = els.cpop.querySelector("#palq"); filterPalette(q ? q.value : ""); } },
     commandsLoading: (p) => { commandsLoading = !!p.on; if (cOpen === "slash") { const q = els.cpop.querySelector("#palq"); filterPalette(q ? q.value : ""); } },
+    // The CLI's own model list (its initialize response, relayed by the host): current display
+    // names, the canonical id each row resolves to, and per-model effort ranges. Replaces the
+    // fallback rows init carried, so a new model release renames — or adds — a row on its own.
+    models: (p) => {
+      if (Array.isArray(p.models) && p.models.length) models = p.models;
+      if (p.effortsByModel) effortsByModel = p.effortsByModel;
+      reconcileModelId();
+      applyEffortsForModel();
+      updateModelBtn();
+      if (topOpen === "model") renderModel();
+      if (topOpen === "context") renderContext();
+    },
     setup: (p) => renderSetupBanner(p),
     // Outcome of a background `claude update`. The host reports it directly rather than leaving
     // the page to infer it from a version change, so the confirmation can't be lost to a race
@@ -473,7 +486,7 @@
     clear: () => { els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear(); },
     restore: (p) => {
       endTurn(); els.messages.innerHTML = ""; toolCards.clear();
-      if (p.model) cur.model = p.model;
+      if (p.model) { cur.model = p.model; reconcileModelId(); }
       if (p.mode) { cur.mode = p.mode; updateModeLabel(); }
       if (p.effort) cur.effort = p.effort;
       if (typeof p.showThinking === "boolean") { thinkingVisible = p.showThinking; applyThinkingVisibility(); }
@@ -583,7 +596,7 @@
     const name = shortModel(ctx.model ? modelDisplay(ctx.model)
       : (row ? (row.label || row.name) : modelDisplay(cur.model)));
     els.modelBtn.textContent = (name || "Model") + " ▾";
-    els.modelBtn.title = "Model: " + (ctx.model || own(MODEL_WIRE, cur.model) || cur.model) + " — click to change model & effort";
+    els.modelBtn.title = "Model: " + (ctx.model || wireOf(cur.model)) + " — click to change model & effort";
   }
   function applyThinkingVisibility() {
     els.messages.classList.toggle("hide-thinking", !thinkingVisible);
@@ -608,27 +621,62 @@
       updateModeLabel();
     }
   }
-  // Maps a model picker id to the wire name handed to the CLI, also shown in the "Switched to"
+  // Maps a fallback picker id to the wire name handed to the CLI, also shown in the "Switched to"
   // divider. All aliases, never dated ids — the CLI resolves each to the newest model in that
-  // family at launch, so a new release needs no extension rebuild. Mirrors ClaudeSession.DefaultModel.
+  // family at launch. Mirrors ClaudeSession.DefaultModel. Only a fallback: once the host relays
+  // the CLI's own list, each row carries the canonical id it resolves to (`wire`), and that wins.
   const MODEL_WIRE = { default: "opus[1m]", fable: "fable", sonnet: "sonnet", haiku: "haiku" };
-  // Quick-picks shown under the Custom-model input — click to fill + apply. Deliberately
-  // excludes what the main picker already offers one-click; lists the other context/family
-  // combinations plus pinned older snapshots. Still open-ended: any valid id works
+  function wireOf(id) { const row = models.find((m) => m.id === id); return (row && row.wire) || own(MODEL_WIRE, id) || id; }
+  function is1m(s) { return /\[1m\]/i.test(String(s || "")); }
+  // The persisted selection can predate the CLI list: a fallback alias ("fable") where the CLI
+  // now lists a pinned id ("claude-fable-5-1[1m]"), or a wire id the user typed that an alias row
+  // covers (the CLI's resolvedModel). Move onto that row so its label, effort range and Auto-mode
+  // gating apply — the model that runs is the same either way. A versioned id with no row is a
+  // deliberate pin and stays as typed; so does an alias the fallback never offered ("opus").
+  function reconcileModelId() {
+    if (!cur.model || models.some((m) => m.id === cur.model)) return;
+    const lc = String(cur.model).toLowerCase();
+    let row = models.find((m) => m.id !== "default" && String(m.wire || "").toLowerCase() === lc)
+      || models.find((m) => String(m.wire || "").toLowerCase() === lc);
+    if (!row && Object.prototype.hasOwnProperty.call(MODEL_WIRE, cur.model)) {
+      const fam = (s) => String(s || "").toLowerCase().replace(/\[1m\]/g, "").replace(/^claude-/, "").split("-")[0];
+      const same = models.filter((m) => m.id !== "default" && fam(m.wire || m.id) === fam(cur.model));
+      row = same.find((m) => is1m(m.id) === is1m(cur.model)) || (same.length === 1 ? same[0] : null);
+    }
+    if (!row) return;
+    cur.model = row.id;
+    post("setModel", { model: cur.model });
+  }
+  // Quick-picks shown under the Custom-model input — click to fill + apply. What the main picker
+  // does not already offer one-click: the other context/family combinations, the always-newest
+  // aliases, and pinned older snapshots — the CLI reports only what it currently offers, never a
+  // superseded id, so this half stays a hand-kept list. Still open-ended: any valid id works
   // (dated snapshots, [1m] 1M-context variants, etc). Availability depends on the CLI/account.
   // The display name is derived with prettyModel(), so these rows read the same
   // "<model> · <what it is for>" way as the main picker without repeating the name here.
   const MODEL_SUGGESTIONS = [
     { id: "opus", desc: "Latest Opus, standard 200k context" },
     { id: "sonnet[1m]", desc: "Latest Sonnet, 1M context" },
+    { id: "fable", desc: "Latest Fable, follows new releases" },
+    { id: "claude-fable-5[1m]", desc: "Pinned — previous Fable generation" },
     { id: "claude-opus-4-8[1m]", desc: "Pinned — stays on 4.8 as newer models ship" },
     { id: "claude-opus-4-8", desc: "Pinned, standard 200k context" },
     { id: "claude-opus-4-7[1m]", desc: "Pinned — previous Opus generation" },
   ];
+  // Hide any quick-pick the main picker already offers — matched on the row id or on the id that
+  // row resolves to. The CLI's list decides which those are, so the split stays right as it
+  // changes: while the CLI offered Fable as the bare "fable" alias that row covered it, and now
+  // that the CLI pins Fable to a version, the alias is no longer one click and earns its place.
+  function modelSuggestions() {
+    return MODEL_SUGGESTIONS.filter((s) => {
+      const lc = s.id.toLowerCase();
+      return !models.some((m) => String(m.id).toLowerCase() === lc || String(m.wire || "").toLowerCase() === lc);
+    });
+  }
   function showModelDivider(id) {
     const d = document.createElement("div");
     d.className = "compacted-divider";
-    d.innerHTML = "<span>Switched to " + window.md.esc(own(MODEL_WIRE, id) || id) + "</span>";
+    d.innerHTML = "<span>Switched to " + window.md.esc(wireOf(id)) + "</span>";
     els.messages.appendChild(d); scrollDown();
   }
   function effortDesc(id) {
@@ -651,8 +699,12 @@
   // measured against the 200k default made the ring read 5× the dialog's percentage.
   function ctxWindow() {
     if (ctx.windowReported && ctx.window) return ctx.window;
-    const shown = ctx.model || own(MODEL_WIRE, cur.model) || cur.model;
-    return /\[1m\]/i.test(shown) ? 1000000 : 200000;
+    if (is1m(ctx.model || wireOf(cur.model))) return 1000000;
+    // The CLI names a model that is 1M by default (Fable) without the suffix, while its picker
+    // row carries it ("claude-fable-5-1[1m]"): trust the row when the CLI id is that row's model.
+    const row = models.find((m) => m.id === cur.model);
+    if (row && is1m(row.id) && (!ctx.model || ctx.model === String(row.wire || row.id).replace(/\[1m\]/ig, ""))) return 1000000;
+    return 200000;
   }
   // Picking a different model changes the window (1M Opus -> 200k Sonnet), but the CLI only says
   // so on the next `result`. Drop the reported value so ctxWindow() follows the new selection
@@ -886,7 +938,7 @@
     // A selected custom id reads the same way as the built-in rows: friendly name, then the id.
     const customLine = isCustom
       ? ((prettyModel(cur.model) ? prettyModel(cur.model) + " · " : "") + cur.model)
-      : "Any model id or alias, e.g. claude-fable-5";
+      : "Any model id or alias, e.g. sonnet[1m]";
     h += '<div class="opt' + (isCustom ? " sel" : "") + '" data-id="__custom"><div class="obody"><div class="oname">Custom model…</div><div class="odesc">' + window.md.esc(customLine) + '</div></div>' + (isCustom ? '<div class="ochk">✓</div>' : "") + "</div>";
     const ei = Math.max(0, efforts.findIndex((x) => x.id === cur.effort));
     const curName = (efforts[ei] || {}).name || "Off";
@@ -914,7 +966,7 @@
     h += '<div class="note err" id="customModelErr"></div>';
     h += '<div class="note">Type any model id or alias, or pick a known one:</div>';
     h += '<div id="customSuggest">';
-    MODEL_SUGGESTIONS.forEach((s) => {
+    modelSuggestions().forEach((s) => {
       // Same shape as the main picker: bold model name, then "<what it is for> · <wire id>".
       // The id stays visible here because this screen is about picking a specific id.
       const nm = prettyModel(s.id) || s.id;
@@ -939,7 +991,11 @@
       // picker id is already normal — check that first, else typing "opus[1m]" would match
       // MODEL_WIRE.default and land on Default rather than the explicit Opus row.
       if (!models.some((m) => m.id === v)) {
-        for (const k in MODEL_WIRE) if (MODEL_WIRE[k] === v) { v = k; break; }
+        const lc = v.toLowerCase();
+        const byWire = models.find((m) => m.id !== "default" && String(m.wire || "").toLowerCase() === lc)
+          || models.find((m) => String(m.wire || "").toLowerCase() === lc);
+        if (byWire) v = byWire.id;
+        else for (const k in MODEL_WIRE) if (MODEL_WIRE[k] === v) { v = k; break; }
       }
       if (v !== cur.model) { cur.model = v; post("setModel", { model: v }); applyEffortsForModel(); showModelDivider(v); onModelSwitched(); }
       closeTop();
@@ -1092,7 +1148,7 @@
   function renderContext() {
     // Before the first turn the CLI reports no usage, so fall back to the *selected* model
     // (resolved to its wire id) and its expected window instead of a bare "default"/200k.
-    const shownModel = ctx.model || own(MODEL_WIRE, cur.model) || cur.model;
+    const shownModel = ctx.model || wireOf(cur.model);
     const used = ctx.used, win = ctxWindow(), pct = Math.round((used / win) * 100);
     const sys = ctx.system || 0, msgs = Math.max(0, used - sys), free = Math.max(0, win - used);
     const seg = (v, c) => '<span style="width:' + (win ? (v / win * 100) : 0) + '%;background:' + c + '"></span>';
@@ -1183,12 +1239,13 @@
     }));
   }
 
-  // Models where bypassPermissions (Auto mode) is hidden.
+  // Models where bypassPermissions (Auto mode) is hidden. The CLI says which (each row's
+  // `autoMode`); this set only covers a row that does not say.
   const NO_AUTO_MODE_MODELS = new Set(["haiku"]);
   function visibleModes() {
-    return NO_AUTO_MODE_MODELS.has(cur.model)
-      ? modes.filter((m) => m.id !== "bypassPermissions")
-      : modes;
+    const row = models.find((m) => m.id === cur.model);
+    const noAuto = row && typeof row.autoMode === "boolean" ? !row.autoMode : NO_AUTO_MODE_MODELS.has(cur.model);
+    return noAuto ? modes.filter((m) => m.id !== "bypassPermissions") : modes;
   }
   function renderMode() {
     let h = '<div class="sec">Permission mode</div>';
