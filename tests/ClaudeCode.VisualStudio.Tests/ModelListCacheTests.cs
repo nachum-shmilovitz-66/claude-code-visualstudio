@@ -36,7 +36,7 @@ namespace ClaudeCode.VisualStudio.Tests
             var got = ModelListCache.Load();
             Assert.IsNotNull(got);
             Assert.AreEqual(rows.Count, got.Count);
-            Assert.AreEqual("fable", got[2].Id);
+            Assert.AreEqual("claude-fable-5-1[1m]", got[2].Id);
             Assert.AreEqual("Fable 5.1", got[2].Label);
             Assert.AreEqual(10.0, got[2].Ratio);
             Assert.IsFalse(got[4].AutoMode);
@@ -64,7 +64,8 @@ namespace ClaudeCode.VisualStudio.Tests
             Directory.CreateDirectory(Path.GetDirectoryName(_path));
             // A hand-edited (or corrupted) file: one good row, one flag-shaped id, one without a name.
             File.WriteAllText(_path,
-                "[{\"Id\":\"sonnet\",\"Name\":\"Sonnet\"},{\"Id\":\"--resume\",\"Name\":\"Bad\"},{\"Id\":\"haiku\"},null]");
+                "{\"Defaults\":\"" + CliModelList.DefaultsStamp() + "\",\"Models\":" +
+                "[{\"Id\":\"sonnet\",\"Name\":\"Sonnet\"},{\"Id\":\"--resume\",\"Name\":\"Bad\"},{\"Id\":\"haiku\"},null]}");
             var got = ModelListCache.Load();
             Assert.IsNotNull(got);
             Assert.AreEqual(1, got.Count);
@@ -79,6 +80,24 @@ namespace ClaudeCode.VisualStudio.Tests
             Assert.IsNull(ModelListCache.Load());
             File.WriteAllText(_path, "[]");
             Assert.IsNull(ModelListCache.Load());
+        }
+
+        // Seen 2026-09-26: the picker opened on "Opus 5" - a list cached from an older CLI - for the
+        // ~35 s before the live probe replaced it with Opus 5.5. A list cached before this release's
+        // defaults must give way to them.
+        [TestMethod]
+        public void Load_ListCachedBeforeTheseDefaults_IsDropped()
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_path));
+            // The format before the stamp existed: a bare array.
+            File.WriteAllText(_path, "[{\"Id\":\"default\",\"Name\":\"Default\",\"Label\":\"Opus 5 with 1M context\"}]");
+            Assert.IsNull(ModelListCache.Load());
+            // Stamped by an older release whose defaults differ.
+            File.WriteAllText(_path, "{\"Defaults\":\"default=claude-opus-5[1m]\",\"Models\":[{\"Id\":\"default\",\"Name\":\"Default\"}]}");
+            Assert.IsNull(ModelListCache.Load());
+            // Stamped under these defaults: kept.
+            ModelListCache.Save(new List<CliModelInfo> { new CliModelInfo { Id = "default", Name = "Default" } });
+            Assert.IsNotNull(ModelListCache.Load());
         }
     }
 }

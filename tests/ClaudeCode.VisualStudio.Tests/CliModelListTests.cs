@@ -12,6 +12,10 @@ namespace ClaudeCode.VisualStudio.Tests
         // The CLI separates the model from its blurb with " · " (space, middle dot, space).
         private static readonly string Mid = " " + (char)0xB7 + " ";
 
+        // Ratios come from ModelPricing; start every test on its built-in table.
+        [TestInitialize]
+        public void BuiltInPrices() => ModelPricing.ResetForTests();
+
         private static string Row(string value, string resolved, string name, string label, string blurb, string levels, string extra)
         {
             return "{\"value\":" + (value == null ? "null" : "\"" + value + "\"") +
@@ -29,6 +33,19 @@ namespace ClaudeCode.VisualStudio.Tests
             return "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_probe_init\",\"response\":{\"commands\":[],\"models\":[" +
                 Row("default", "claude-opus-5[1m]", "Default (recommended)", "Opus 5 with 1M context", "Best for everyday, complex tasks", all, ",\"supportsAdaptiveThinking\":true,\"supportsFastMode\":true,\"supportsAutoMode\":true") + "," +
                 Row("opus[1m]", "claude-opus-5[1m]", "Opus (1M context)", "Opus 5 with 1M context", "Best for everyday, complex tasks", all, ",\"supportsAutoMode\":true") + "," +
+                Row("claude-fable-5-1[1m]", "claude-fable-5-1", "Fable", "Fable 5.1", "Most capable for your hardest and longest-running tasks", all, ",\"supportsAutoMode\":true") + "," +
+                Row("sonnet", "claude-sonnet-5", "Sonnet", "Sonnet 5", "Efficient for routine tasks", all, ",\"supportsAutoMode\":true") + "," +
+                Row("haiku", "claude-haiku-4-5-20251001", "Haiku", "Haiku 4.5", "Fastest for quick answers", null, "") +
+                "]}}}";
+        }
+
+        // The reply CLI 2.1.283 gives (2026-09-26), as the picker showed it: Opus 5.5 is the default.
+        private static string ControlResponse283()
+        {
+            const string all = "\"low\",\"medium\",\"high\",\"xhigh\",\"max\"";
+            return "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_probe_init\",\"response\":{\"commands\":[],\"models\":[" +
+                Row("default", "claude-opus-5-5[1m]", "Default (recommended)", "Opus 5.5 with 1M context", "Best for everyday, complex tasks", all, ",\"supportsAutoMode\":true") + "," +
+                Row("opus[1m]", "claude-opus-5-5[1m]", "Opus (1M context)", "Opus 5.5 with 1M context", "Best for everyday, complex tasks", all, ",\"supportsAutoMode\":true") + "," +
                 Row("claude-fable-5-1[1m]", "claude-fable-5-1", "Fable", "Fable 5.1", "Most capable for your hardest and longest-running tasks", all, ",\"supportsAutoMode\":true") + "," +
                 Row("sonnet", "claude-sonnet-5", "Sonnet", "Sonnet 5", "Efficient for routine tasks", all, ",\"supportsAutoMode\":true") + "," +
                 Row("haiku", "claude-haiku-4-5-20251001", "Haiku", "Haiku 4.5", "Fastest for quick answers", null, "") +
@@ -126,7 +143,7 @@ namespace ClaudeCode.VisualStudio.Tests
                 Assert.AreEqual("", m.Label);
                 Assert.AreEqual("Latest Opus", m.Desc);
                 Assert.IsNull(m.Wire);
-                Assert.AreEqual(5.0, m.Ratio, "family read off the id when there is no resolved model");
+                Assert.AreEqual(4.0, m.Ratio, "no resolved model: the alias's own target prices it (opus = Opus 5.5)");
                 Assert.IsFalse(m.AutoMode);
             }
         }
@@ -149,7 +166,7 @@ namespace ClaudeCode.VisualStudio.Tests
         public void EffortsByModel_NamesEachStep()
         {
             var map = CliModelList.EffortsByModel(CliModelList.Fallback());
-            CollectionAssert.AreEquivalent(new[] { "default", "opus[1m]", "fable", "sonnet", "haiku" }, map.Keys.ToArray());
+            CollectionAssert.AreEquivalent(new[] { "default", "opus[1m]", "claude-fable-5-1[1m]", "sonnet", "haiku" }, map.Keys.ToArray());
             var def = JsonSerializer.Serialize(map["default"]);
             StringAssert.Contains(def, "{\"id\":\"none\",\"name\":\"Off\"}");
             StringAssert.Contains(def, "{\"id\":\"extrahigh\",\"name\":\"Extra high\"}");
@@ -159,15 +176,46 @@ namespace ClaudeCode.VisualStudio.Tests
         }
 
         [TestMethod]
-        public void Fallback_RowsAreVersionFreeAliasesThatPassValidation()
+        public void Fallback_RowsPassValidationAndCarryBadges()
         {
             foreach (var m in CliModelList.Fallback())
             {
                 Assert.AreEqual(m.Id, InputValidation.SanitizeModel(m.Id, null), m.Id);
-                Assert.IsFalse(m.Label.Any(char.IsDigit) && !m.Label.Contains("1M"), "no version number baked in: " + m.Label);
                 Assert.IsTrue(m.Efforts.Length > 0, m.Id);
-                Assert.IsTrue(m.Ratio.HasValue, m.Id);
+                Assert.IsTrue(m.Ratio.HasValue, "every default row is priced: " + m.Id);
+                Assert.IsFalse(string.IsNullOrEmpty(m.Wire), m.Id);
             }
+        }
+
+        // The defaults are a copy of what the current CLI reports (refreshed every release), so the
+        // picker opens on today's models before the CLI has answered - same rows, same order.
+        [TestMethod]
+        public void Fallback_MatchesTheCurrentCliList()
+        {
+            var cli = new List<CliModelInfo>();
+            Assert.IsTrue(CliModelList.TryParseControlResponse(ControlResponse283(), cli));
+            var fb = CliModelList.Fallback();
+            CollectionAssert.AreEqual(cli.Select(r => r.Id).ToArray(), fb.Select(r => r.Id).ToArray());
+            for (int i = 0; i < cli.Count; i++)
+            {
+                Assert.AreEqual(cli[i].Name, fb[i].Name, cli[i].Id);
+                Assert.AreEqual(cli[i].Label, fb[i].Label, cli[i].Id);
+                Assert.AreEqual(cli[i].Desc, fb[i].Desc, cli[i].Id);
+                Assert.AreEqual(cli[i].Wire, fb[i].Wire, cli[i].Id);
+                Assert.AreEqual(cli[i].Ratio, fb[i].Ratio, cli[i].Id);
+                Assert.AreEqual(cli[i].AutoMode, fb[i].AutoMode, cli[i].Id);
+                CollectionAssert.AreEqual(cli[i].Efforts, fb[i].Efforts, cli[i].Id);
+            }
+            Assert.AreEqual("Opus 5.5 with 1M context", fb[0].Label);
+            Assert.AreEqual(4.0, fb[0].Ratio);
+        }
+
+        [TestMethod]
+        public void DefaultsStamp_FollowsTheFallbackRows()
+        {
+            var stamp = CliModelList.DefaultsStamp();
+            StringAssert.Contains(stamp, "default=claude-opus-5-5[1m]");
+            Assert.AreEqual(stamp, CliModelList.DefaultsStamp());
         }
 
         [TestMethod]
@@ -183,11 +231,19 @@ namespace ClaudeCode.VisualStudio.Tests
         }
 
         [TestMethod]
-        public void RatioFor_UnknownFamily_IsNull()
+        public void FromCliRow_PricesTheResolvedModelNotTheFamily()
         {
-            Assert.IsNull(CliModelList.RatioFor("mystery"));
-            Assert.IsNull(CliModelList.RatioFor(""));
-            Assert.AreEqual(10.0, CliModelList.RatioFor("mythos"));
+            // Issue #2: Opus 5.5 is $4/$20 (4x Haiku), not the $5/$25 of the rest of the family.
+            using (var doc = JsonDocument.Parse("[" +
+                Row("default", "claude-opus-5-5[1m]", "Default (recommended)", "Opus 5.5 with 1M context", "x", null, "") + "," +
+                Row("claude-opus-5[1m]", "claude-opus-5[1m]", "Opus 5", "Opus 5 with 1M context", "x", null, "") + "," +
+                Row("claude-opus-9", "claude-opus-9", "Opus 9", "Opus 9", "x", null, "") + "]"))
+            {
+                var rows = CliModelList.FromCli(doc.RootElement);
+                Assert.AreEqual(4.0, rows[0].Ratio);
+                Assert.AreEqual(5.0, rows[1].Ratio);
+                Assert.IsNull(rows[2].Ratio, "a model no price table knows gets no badge, not a family guess");
+            }
         }
     }
 }

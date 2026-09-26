@@ -27,7 +27,7 @@ namespace ClaudeCode.VisualStudio.Services
         public string Desc { get; set; }
         /// <summary>Canonical wire id the picker id resolves to ("claude-fable-5-1"); null when unknown.</summary>
         public string Wire { get; set; }
-        /// <summary>Per-token price relative to the cheapest family (Haiku = 1); null when unknown (no badge).</summary>
+        /// <summary>Per-token price relative to Haiku (Haiku = 1), from <see cref="ModelPricing"/>; null when unknown (no badge).</summary>
         public double? Ratio { get; set; }
         /// <summary>Effort ids the slider offers for this model, in order (values of <see cref="InputValidation.AllowedEfforts"/>).</summary>
         public string[] Efforts { get; set; }
@@ -65,22 +65,34 @@ namespace ClaudeCode.VisualStudio.Services
         private static readonly string[] BudgetOnlyEfforts = { "none", "low", "medium", "high" };
 
         /// <summary>
-        /// The rows shown before the CLI has answered (and if it never does). Every id is a CLI
-        /// alias that resolves to the newest model in its family at launch, and the labels carry
-        /// no version number, so nothing here goes stale when a model ships: the CLI list renames
-        /// the rows the moment it lands, and it is what the picker normally shows.
+        /// The rows shown before the CLI has answered (and if it never does): a copy of the list the
+        /// current CLI reports, so the picker opens on today's models rather than a generic
+        /// placeholder. Refresh it on every extension release - ids, labels and resolved models
+        /// exactly as the CLI's <c>initialize</c> reply gives them (CLI 2.1.283, 2026-09-26). A new
+        /// release's rows also retire a model list cached before them (<see cref="ModelListCache"/>).
         /// </summary>
         public static List<CliModelInfo> Fallback()
         {
             var full = new[] { "none", "low", "medium", "high", "extrahigh", "max", "ultracode" };
             return new List<CliModelInfo>
             {
-                new CliModelInfo { Id = "default",  Name = "Default (recommended)", Label = "Opus with 1M context", Desc = "Best for everyday, complex tasks", Wire = "opus[1m]", Ratio = RatioFor("opus"), Efforts = full, AutoMode = true },
-                new CliModelInfo { Id = "opus[1m]", Name = "Opus (1M context)",     Label = "Opus with 1M context", Desc = "Best for everyday, complex tasks", Wire = "opus[1m]", Ratio = RatioFor("opus"), Efforts = full, AutoMode = true },
-                new CliModelInfo { Id = "fable",    Name = "Fable",                 Label = "Fable",  Desc = "Most capable for your hardest and longest-running tasks", Wire = "fable", Ratio = RatioFor("fable"), Efforts = full, AutoMode = true },
-                new CliModelInfo { Id = "sonnet",   Name = "Sonnet",                Label = "Sonnet", Desc = "Efficient for routine tasks", Wire = "sonnet", Ratio = RatioFor("sonnet"), Efforts = new[] { "none", "low", "medium", "high", "extrahigh", "max" }, AutoMode = true },
-                new CliModelInfo { Id = "haiku",    Name = "Haiku",                 Label = "Haiku",  Desc = "Fastest for quick answers", Wire = "haiku", Ratio = RatioFor("haiku"), Efforts = BudgetOnlyEfforts, AutoMode = false },
+                new CliModelInfo { Id = "default",              Name = "Default (recommended)", Label = "Opus 5.5 with 1M context", Desc = "Best for everyday, complex tasks", Wire = "claude-opus-5-5[1m]", Ratio = ModelPricing.RatioFor("claude-opus-5-5[1m]"), Efforts = full, AutoMode = true },
+                new CliModelInfo { Id = "opus[1m]",             Name = "Opus (1M context)",     Label = "Opus 5.5 with 1M context", Desc = "Best for everyday, complex tasks", Wire = "claude-opus-5-5[1m]", Ratio = ModelPricing.RatioFor("claude-opus-5-5[1m]"), Efforts = full, AutoMode = true },
+                new CliModelInfo { Id = "claude-fable-5-1[1m]", Name = "Fable",                 Label = "Fable 5.1",  Desc = "Most capable for your hardest and longest-running tasks", Wire = "claude-fable-5-1", Ratio = ModelPricing.RatioFor("claude-fable-5-1"), Efforts = full, AutoMode = true },
+                new CliModelInfo { Id = "sonnet",               Name = "Sonnet",                Label = "Sonnet 5",   Desc = "Efficient for routine tasks", Wire = "claude-sonnet-5", Ratio = ModelPricing.RatioFor("claude-sonnet-5"), Efforts = new[] { "none", "low", "medium", "high", "extrahigh", "max" }, AutoMode = true },
+                new CliModelInfo { Id = "haiku",                Name = "Haiku",                 Label = "Haiku 4.5",  Desc = "Fastest for quick answers", Wire = "claude-haiku-4-5-20251001", Ratio = ModelPricing.RatioFor("claude-haiku-4-5-20251001"), Efforts = BudgetOnlyEfforts, AutoMode = false },
             };
+        }
+
+        /// <summary>
+        /// Identifies this release's <see cref="Fallback"/> rows. A model list cached under another
+        /// stamp predates them, so it is dropped rather than shown over the newer defaults.
+        /// </summary>
+        public static string DefaultsStamp()
+        {
+            var parts = new List<string>();
+            foreach (var m in Fallback()) parts.Add(m.Id + "=" + m.Wire);
+            return string.Join(",", parts);
         }
 
         /// <summary>
@@ -188,7 +200,7 @@ namespace ClaudeCode.VisualStudio.Services
                 Label = label,
                 Desc = desc,
                 Wire = string.IsNullOrEmpty(wire) ? null : wire,
-                Ratio = RatioFor(family),
+                Ratio = ModelPricing.RatioFor(string.IsNullOrEmpty(wire) ? id : wire),
                 Efforts = EffortsFor(row, family),
                 AutoMode = Bool(row, "supportsAutoMode"),
             };
@@ -235,24 +247,6 @@ namespace ClaudeCode.VisualStudio.Services
             if (s.StartsWith("claude-", StringComparison.Ordinal)) s = s.Substring(7);
             int dash = s.IndexOf('-');
             return dash > 0 ? s.Substring(0, dash) : s;
-        }
-
-        /// <summary>
-        /// Per-token price relative to Haiku, by family. Input and output prices scale by the same
-        /// factor, so one number covers both: Haiku $1/$5, Sonnet $2/$10, Opus $5/$25, Fable $10/$50
-        /// per MTok. Null (no badge) for a family this table does not know.
-        /// </summary>
-        internal static double? RatioFor(string family)
-        {
-            switch (family)
-            {
-                case "haiku": return 1.0;
-                case "sonnet": return 2.0;
-                case "opus": return 5.0;
-                case "fable":
-                case "mythos": return 10.0;
-                default: return null;
-            }
         }
 
         private static string Str(JsonElement o, string name)

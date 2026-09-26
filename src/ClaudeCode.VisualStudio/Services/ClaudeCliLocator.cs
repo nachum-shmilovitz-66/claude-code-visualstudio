@@ -60,6 +60,29 @@ namespace ClaudeCode.VisualStudio.Services
             return false;
         }
 
+        /// <summary>
+        /// The file that holds the CLI program itself, from the launcher path: a native claude.exe
+        /// is the program; an npm install's claude.cmd shim sits next to node_modules holding
+        /// cli.js. Null when there is no such local file (a bare "claude" on PATH, an unknown
+        /// layout). Reading it needs no process - see <see cref="ModelPricing"/> and the update watch.
+        /// </summary>
+        internal static string ProgramFile(string launcher)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(launcher) || !Path.IsPathRooted(launcher) || !File.Exists(launcher)) return null;
+                if (launcher.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return launcher;
+                if (launcher.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || launcher.EndsWith(".bat", StringComparison.OrdinalIgnoreCase))
+                {
+                    var pkg = Path.Combine(Path.GetDirectoryName(launcher), "node_modules", "@anthropic-ai", "claude-code");
+                    foreach (var c in new[] { Path.Combine(pkg, "cli.js"), Path.Combine(pkg, "bin", "claude.exe") })
+                        if (File.Exists(c)) return c;
+                }
+            }
+            catch { }
+            return null;
+        }
+
         internal static Result Wrap(string path)
         {
             var isCmd = path.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) ||

@@ -516,6 +516,7 @@ namespace ClaudeCode.VisualStudio
                     long tc = Perf.Now;
                     var cached = SlashCommandCache.Load(_cwd);
                     var cachedModels = ModelListCache.Load();
+                    ModelPricing.LoadSaved();
                     Perf.Step("commands: cache load", tc);
                     bool warm = cached != null && cached.Count > 0;
                     if (warm)
@@ -547,11 +548,21 @@ namespace ClaudeCode.VisualStudio
                             _host.PostMessage("commands", new { commands = probe.Commands });
                         }
                         // The same probe answers with the models this CLI and account can use.
-                        if (probe.Models != null && probe.Models.Count > 0)
+                        var liveModels = probe.Models != null && probe.Models.Count > 0 ? probe.Models : null;
+                        if (liveModels != null)
                         {
-                            ModelListCache.Save(probe.Models);
-                            PostModels(probe.Models, "cli");
+                            ModelListCache.Save(liveModels);
+                            PostModels(liveModels, "cli");
                         }
+
+                        // Prices for the cost badges, read out of the CLI itself - only when the
+                        // CLI file changed since the last reading (a CLI update may bring a model).
+                        // After the probe, so the palette never waits on it.
+                        long tp = Perf.Now;
+                        bool pricesChanged = ModelPricing.RefreshFromCli();
+                        Perf.Step("commands: model prices", tp);
+                        var shown = liveModels ?? cachedModels;
+                        if (pricesChanged && shown != null) PostModels(shown, "prices");
                     }
                     finally
                     {
@@ -1106,8 +1117,16 @@ namespace ClaudeCode.VisualStudio
         /// The updater runs in a detached <c>cmd /k</c> window, which stays open after the command
         /// finishes, so process exit says nothing about when the update completed — and nothing
         /// else was watching, which left the "update available" banner up even after a successful
-        /// update. Poll the version the banner itself reports (<c>claude --version</c>) and push a
-        /// fresh status the moment it moves.
+        /// update. Watch for the swap and push a fresh status the moment it lands.
+        /// </para>
+        /// <para>
+        /// Watch the CLI's program file (size and timestamp), not <c>claude --version</c>: every
+        /// version probe starts another claude.exe from the very file the updater is replacing, and
+        /// the native updater can then download the release, print "Successfully updated", and
+        /// leave the old binary in place (seen 2026-09-26: 2.1.283 staged, 2.1.281 still
+        /// installed; the same update run with nothing else starting claude.exe swapped at once).
+        /// The version is read once, after the file has changed. Only when there is no local
+        /// program file to watch does it fall back to polling the version.
         /// </para>
         /// </summary>
         private void WatchForCliUpdate()
@@ -1119,8 +1138,10 @@ namespace ClaudeCode.VisualStudio
             {
                 try
                 {
-                    string before = GetInstalledCliVersion();
-                    Log.Write("update watch: started at " + (before ?? "?"));
+                    string program = ClaudeCliLocator.ProgramFile(ClaudeCliLocator.Locate().ResolvedPath);
+                    string stamp = CliFileStamp(program);
+                    string before = stamp == null ? GetInstalledCliVersion() : null;
+                    Log.Write("update watch: started " + (stamp != null ? "on " + program : "at " + (before ?? "?")));
 
                     // ~5 minutes. A native self-update is usually seconds, but it can queue behind
                     // a download, and the binary cannot be replaced while a claude session holds
@@ -1129,18 +1150,40 @@ namespace ClaudeCode.VisualStudio
                     {
                         await System.Threading.Tasks.Task.Delay(5000).ConfigureAwait(false);
 
-                        string now = GetInstalledCliVersion();
-                        if (string.IsNullOrEmpty(now) || now == before) continue;
-
-                        Log.Write("update watch: " + (before ?? "?") + " -> " + now);
+                        if (stamp != null)
+                        {
+                            var now = CliFileStamp(program);
+                            if (now == null || now == stamp) continue;
+                            Log.Write("update watch: " + program + " changed");
+                            // Let the updater finish the swap before anything runs the new binary.
+                            await System.Threading.Tasks.Task.Delay(2000).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            string now = GetInstalledCliVersion();
+                            if (string.IsNullOrEmpty(now) || now == before) continue;
+                            Log.Write("update watch: " + (before ?? "?") + " -> " + now);
+                        }
                         SendSetupStatus(forceRefresh: true);
                         return;
                     }
-                    Log.Write("update watch: gave up, still at " + (before ?? "?"));
+                    Log.Write("update watch: gave up, no change");
                 }
                 catch (Exception ex) { Log.Write("WatchForCliUpdate: " + ex.Message); }
                 finally { _updateWatchRunning = false; }
             });
+        }
+
+        // Size + last-write time of the CLI program file; null when there is none to read.
+        internal static string CliFileStamp(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path)) return null;
+                var fi = new FileInfo(path);
+                return fi.Exists ? fi.Length + "@" + fi.LastWriteTimeUtc.Ticks : null;
+            }
+            catch { return null; }
         }
 
         // Opens an interactive `claude` session in a console at the working dir. Used for the
@@ -1355,9 +1398,12 @@ namespace ClaudeCode.VisualStudio
         }
 
         // The picker rows and their effort ranges. Replaces the fallback rows the init message
-        // carried with the list the CLI reported (`source` is "cache" or "cli", for the log).
+        // carried with the list the CLI reported (`source` is "cache", "cli" or "prices", for the
+        // log). Cost badges are recomputed from the prices in effect now, so a cached row never
+        // carries a ratio from an older price table.
         private void PostModels(System.Collections.Generic.List<CliModelInfo> models, string source)
         {
+            ModelPricing.Apply(models);
             Log.Write("models: " + models.Count + " row(s) from " + source);
             _host.PostMessage("models", new
             {
@@ -1373,7 +1419,7 @@ namespace ClaudeCode.VisualStudio
             var fallback = CliModelList.Fallback();
             _host.PostMessage("init", new
             {
-                version = "1.0.17",
+                version = "1.0.18",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,

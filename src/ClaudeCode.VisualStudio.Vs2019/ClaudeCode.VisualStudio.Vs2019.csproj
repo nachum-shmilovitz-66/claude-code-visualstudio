@@ -150,6 +150,9 @@
     <Compile Include="..\ClaudeCode.VisualStudio\Services\ModelListCache.cs">
       <Link>Services\ModelListCache.cs</Link>
     </Compile>
+    <Compile Include="..\ClaudeCode.VisualStudio\Services\ModelPricing.cs">
+      <Link>Services\ModelPricing.cs</Link>
+    </Compile>
     <Compile Include="..\ClaudeCode.VisualStudio\Services\SessionStore.cs">
       <Link>Services\SessionStore.cs</Link>
     </Compile>

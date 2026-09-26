@@ -18,6 +18,33 @@ namespace ClaudeCode.VisualStudio.Tests
         private const int Hour = ClaudeChatControl.CliCheckIntervalMs;
         private static readonly DateTime Now = new DateTime(2026, 9, 4, 12, 0, 0, DateTimeKind.Utc);
 
+        // The update watch compares this instead of running `claude --version` while an update
+        // is in flight (a version probe starts claude.exe from the file being replaced).
+        [TestMethod]
+        public void CliFileStamp_ChangesWhenTheBinaryIsSwapped()
+        {
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "claude-vs-tests", Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(dir);
+            try
+            {
+                var exe = System.IO.Path.Combine(dir, "claude.exe");
+                Assert.IsNull(ClaudeChatControl.CliFileStamp(exe));
+                Assert.IsNull(ClaudeChatControl.CliFileStamp(null));
+
+                System.IO.File.WriteAllText(exe, "2.1.281");
+                var before = ClaudeChatControl.CliFileStamp(exe);
+                Assert.IsNotNull(before);
+                Assert.AreEqual(before, ClaudeChatControl.CliFileStamp(exe), "stable while untouched");
+
+                // The updater renames the old binary aside and puts the new one in its place.
+                System.IO.File.Move(exe, exe + ".old.1");
+                System.IO.File.WriteAllText(exe, "2.1.283 is bigger");
+                System.IO.File.SetLastWriteTimeUtc(exe, new DateTime(2026, 9, 26, 15, 54, 0, DateTimeKind.Utc));
+                Assert.AreNotEqual(before, ClaudeChatControl.CliFileStamp(exe));
+            }
+            finally { try { System.IO.Directory.Delete(dir, true); } catch { } }
+        }
+
         [TestMethod]
         public void NoCheckYet_WaitsAFullInterval()
         {

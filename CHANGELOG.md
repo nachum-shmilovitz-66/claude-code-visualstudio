@@ -7,6 +7,35 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.18] - 2026-09-26
+
+- **Cost badges price each model, so Opus 5.5 reads 4x, not 5x.** The badge came from a table keyed
+  by family - every Opus was 5x Haiku - and Opus 5.5 broke that the day it shipped at $4/$20 per
+  million tokens against Opus 5's $5/$25 (reported in GitHub issue 2). A new per-model table would
+  only move the problem: the next model at a new price would need another release. The CLI already
+  knows every model's price - it prices its own sessions with a table built into it, and a new
+  model arrives with a CLI update - so the extension now reads that table out of the installed CLI
+  and prices each row by the model it resolves to. No network access: it is a local file read, in
+  the background, only when the CLI file has changed (about a quarter of a second for the 230 MB
+  `claude.exe`), never on the IDE's startup path. The table is not a published interface, so the
+  last good reading is saved and outlives a CLI build whose format cannot be parsed, a built-in
+  table covers the first run, and a model none of them knows gets no badge rather than a guess.
+
+- **The picker opens on today's models instead of an older CLI's.** Before the CLI answers, the
+  picker shows fallback rows and then the list cached from the last run - and that cache still said
+  "Opus 5" for the ~35 seconds until the live probe replaced it with Opus 5.5. The fallback rows are
+  now a copy of what the current CLI reports (Opus 5.5, Fable 5.1, Sonnet 5, Haiku 4.5, with their
+  badges), refreshed with every release, and a list cached before a release's defaults is dropped
+  rather than shown over them.
+
+- **An in-panel CLI update no longer undermines itself.** The updater could download a release,
+  print "Successfully updated", and leave the old binary in place - the banner then showed the same
+  version it started with. While the update ran, the extension polled `claude --version` every five
+  seconds to notice the swap, and each poll started another `claude.exe` from the very file being
+  replaced; the same update run with nothing else starting `claude.exe` swapped at once. The watch
+  now compares the CLI file's size and timestamp, and reads the version once, after the file has
+  actually changed.
+
 ## [1.0.17] - 2026-09-07
 
 - **The model picker follows the CLI, so a new model needs no extension update.** The rows were
