@@ -16,7 +16,7 @@ namespace ClaudeCode.VisualStudio.Services
     public sealed class ClaudeSessionOptions
     {
         public string WorkingDirectory;
-        public string Model;                 // null/"default" -> DefaultModel (latest Opus, 1M ctx)
+        public string Model;                 // null/"default" -> no --model: the CLI's recommended model
         public string PermissionMode = "acceptEdits";
         public string Effort;                // none|low|medium|high -> --max-thinking-tokens
         public string ResumeSessionId;       // for continuing a prior session
@@ -47,12 +47,6 @@ namespace ClaudeCode.VisualStudio.Services
         private const string PermServer = "vsperm";
         private const string PermTool = "approve";
 
-        // Wire id behind the picker's "Default (recommended)" entry — mirrors MODEL_WIRE.default
-        // in app.js. Deliberately an *alias*, not a pinned/dated id: the CLI resolves "opus" to
-        // the newest Opus at launch time, so a new model release is picked up without shipping a
-        // new extension build. The "[1m]" suffix keeps the 1M-context variant.
-        private const string DefaultModel = "opus[1m]";
-
         private bool PermissionPromptEnabled =>
             string.Equals(_options.PermissionMode, "default", StringComparison.Ordinal);
 
@@ -70,6 +64,10 @@ namespace ClaudeCode.VisualStudio.Services
         // The mode the running process is actually in (launch mode, then whatever a successful
         // set_permission_mode switched it to).
         private string _liveMode;
+
+        // The conversation's model, from the latest system/init; picks its modelUsage entry over
+        // any subagent's (PickMainModelUsage).
+        private string _mainModel;
 
         // Per-message streaming state: content block index -> kind/tool accumulation.
         private readonly Dictionary<int, BlockState> _blocks = new Dictionary<int, BlockState>();
@@ -299,14 +297,14 @@ namespace ClaudeCode.VisualStudio.Services
                 // Route per-tool approval through our in-process SDK MCP server (see field docs).
                 sb.Append(" --permission-prompt-tool mcp__").Append(PermServer).Append("__").Append(PermTool);
             }
-            // "default"/null resolves to the advertised default model so the launched session
-            // matches the picker label. Every picker id ("fable"/"sonnet"/"haiku") is likewise a
-            // CLI alias, so all four entries follow the newest model in their family automatically.
-            var model = (string.IsNullOrEmpty(_options.Model) ||
-                         string.Equals(_options.Model, "default", StringComparison.OrdinalIgnoreCase))
-                ? DefaultModel
-                : _options.Model;
-            sb.Append(" --model ").Append(model);
+            // "default"/null passes no --model: the CLI then runs the model it recommends (the one
+            // its "Default (recommended)" picker row names), honouring a `model` in the user's
+            // settings, so a new recommendation needs no extension update.
+            if (!string.IsNullOrEmpty(_options.Model) &&
+                !string.Equals(_options.Model, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.Append(" --model ").Append(_options.Model);
+            }
             int thinking = ThinkingTokensForEffort(_options.Effort);
             if (thinking > 0)
             {
@@ -555,6 +553,7 @@ namespace ClaudeCode.VisualStudio.Services
                 PermissionMode = GetString(root, "permissionMode"),
                 Version = GetString(root, "claude_code_version"),
             };
+            if (!string.IsNullOrEmpty(info.Model)) _mainModel = info.Model;
             if (root.TryGetProperty("tools", out var tools) && tools.ValueKind == JsonValueKind.Array)
             {
                 foreach (var t in tools.EnumerateArray()) info.Tools.Add(t.GetString());
@@ -738,15 +737,45 @@ namespace ClaudeCode.VisualStudio.Services
             // modelUsage is keyed by model id; pull the context window + model name from it.
             if (root.TryGetProperty("modelUsage", out var mu) && mu.ValueKind == JsonValueKind.Object)
             {
-                foreach (var prop in mu.EnumerateObject())
-                {
-                    info.Model = prop.Name;
-                    info.ContextWindow = GetLong(prop.Value, "contextWindow");
-                    break;
-                }
+                string model; long window;
+                PickMainModelUsage(mu, _mainModel, out model, out window);
+                info.Model = model;
+                info.ContextWindow = window;
             }
             if (!string.IsNullOrEmpty(info.SessionId)) SessionId = info.SessionId;
             Result?.Invoke(info);
+        }
+
+        /// <summary>
+        /// The conversation's own entry in a result's <c>modelUsage</c>. A turn that ran subagents
+        /// lists their models too (a Haiku Explore agent, 200k), in no promised order, and taking
+        /// the first entry measured a 1M Opus conversation against Haiku's window. Prefer the model
+        /// the session's <c>system/init</c> named; without one, the entry that moved the most tokens.
+        /// </summary>
+        internal static void PickMainModelUsage(JsonElement modelUsage, string mainModel, out string model, out long contextWindow)
+        {
+            model = null; contextWindow = 0;
+            long best = -1;
+            foreach (var prop in modelUsage.EnumerateObject())
+            {
+                if (prop.Value.ValueKind != JsonValueKind.Object) continue;
+                if (!string.IsNullOrEmpty(mainModel) &&
+                    (string.Equals(prop.Name, mainModel, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(GetString(prop.Value, "canonicalModel"), mainModel, StringComparison.OrdinalIgnoreCase)))
+                {
+                    model = prop.Name;
+                    contextWindow = GetLong(prop.Value, "contextWindow");
+                    return;
+                }
+                long moved = GetLong(prop.Value, "inputTokens") + GetLong(prop.Value, "outputTokens")
+                           + GetLong(prop.Value, "cacheReadInputTokens") + GetLong(prop.Value, "cacheCreationInputTokens");
+                if (moved > best)
+                {
+                    best = moved;
+                    model = prop.Name;
+                    contextWindow = GetLong(prop.Value, "contextWindow");
+                }
+            }
         }
 
         // Replies to control requests *we* sent. Only set_permission_mode is tracked: success means

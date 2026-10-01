@@ -18,6 +18,12 @@ namespace ClaudeCode.VisualStudio.Services
         /// request (an older CLI, a failed launch) - in which case the caller keeps what it has.
         /// </summary>
         public List<CliModelInfo> Models;
+
+        /// <summary>
+        /// Context window of the CLI's default model (the probe runs on it), from its
+        /// <c>get_context_usage</c> reply; 0 when it did not say.
+        /// </summary>
+        public long DefaultContextWindow;
     }
 
     /// <summary>
@@ -80,23 +86,29 @@ namespace ClaudeCode.VisualStudio.Services
                 {
                     var done = new TaskCompletionSource<bool>();
                     var gate = new object();
-                    bool initSeen = false, modelsSeen = false;
+                    bool initSeen = false, modelsSeen = false, ctxSeen = false;
+                    long ctxWindow = 0;
                     proc.OutputDataReceived += (s, e) =>
                     {
                         if (e.Data == null || done.Task.IsCompleted) return;
                         bool finish = false, startGrace = false;
                         lock (gate)
                         {
-                            if (!modelsSeen && CliModelList.TryParseControlResponse(e.Data, models))
+                            if (!ctxSeen && CliModelList.TryParseContextUsage(e.Data, out ctxWindow))
+                            {
+                                ctxSeen = true;
+                                finish = initSeen && modelsSeen;
+                            }
+                            else if (!modelsSeen && CliModelList.TryParseControlResponse(e.Data, models))
                             {
                                 modelsSeen = true;
-                                finish = initSeen;
+                                finish = initSeen && ctxSeen;
                             }
                             else if (!initSeen && TryParseInit(e.Data, result.Commands))
                             {
                                 initSeen = true;
-                                finish = modelsSeen;
-                                startGrace = !modelsSeen;
+                                finish = modelsSeen && ctxSeen;
+                                startGrace = !finish;
                             }
                         }
                         if (finish) done.TrySetResult(true);
@@ -110,13 +122,15 @@ namespace ClaudeCode.VisualStudio.Services
                     proc.BeginErrorReadLine();
 
                     // The model list comes back on the reply to an initialize request; the CLI
-                    // emits system/init only after it reads the first stdin message. Send both
+                    // emits system/init only after it reads the first stdin message. The default
+                    // model's context window comes back on get_context_usage. Send all three
                     // (newline-terminated, stdin left open); the process is killed the moment
-                    // both replies are in (above), before any model turn runs.
+                    // the replies are in (above), before any model turn runs.
                     try
                     {
                         await proc.StandardInput.WriteAsync(
-                            "{\"type\":\"control_request\",\"request_id\":\"req_probe_init\",\"request\":{\"subtype\":\"initialize\"}}\n" +
+                            "{\"type\":\"control_request\",\"request_id\":\"" + CliModelList.InitializeRequestId + "\",\"request\":{\"subtype\":\"initialize\"}}\n" +
+                            "{\"type\":\"control_request\",\"request_id\":\"" + CliModelList.ContextUsageRequestId + "\",\"request\":{\"subtype\":\"get_context_usage\"}}\n" +
                             "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"\"}]}}\n");
                         await proc.StandardInput.FlushAsync();
                     }
@@ -134,6 +148,8 @@ namespace ClaudeCode.VisualStudio.Services
                         if (modelsSeen && models.Count > 0) result.Models = new List<CliModelInfo>(models);
                         else if (modelsSeen) Log.Write("SlashCommandService: CLI answered initialize without a usable model list");
                         else Log.Write("SlashCommandService: no initialize reply (model list kept as is)");
+                        result.DefaultContextWindow = ctxWindow;
+                        if (!ctxSeen) Log.Write("SlashCommandService: no get_context_usage reply (window unknown until the first turn)");
                     }
                 }
             }

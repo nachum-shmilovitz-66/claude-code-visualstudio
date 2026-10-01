@@ -33,6 +33,12 @@ namespace ClaudeCode.VisualStudio.Services
         public string[] Efforts { get; set; }
         /// <summary>False hides "Auto mode" (bypassPermissions) while this model is selected.</summary>
         public bool AutoMode { get; set; }
+        /// <summary>
+        /// Context window the CLI reports for this row's model, so the ring is right before the
+        /// first turn; null when unknown. Only the default model's is measured (the startup probe
+        /// runs on it), so it is set on the rows that resolve to that model.
+        /// </summary>
+        public long? ContextWindow { get; set; }
     }
 
     /// <summary>
@@ -68,19 +74,21 @@ namespace ClaudeCode.VisualStudio.Services
         /// The rows shown before the CLI has answered (and if it never does): a copy of the list the
         /// current CLI reports, so the picker opens on today's models rather than a generic
         /// placeholder. Refresh it on every extension release - ids, labels and resolved models
-        /// exactly as the CLI's <c>initialize</c> reply gives them (CLI 2.1.283, 2026-09-26). A new
-        /// release's rows also retire a model list cached before them (<see cref="ModelListCache"/>).
+        /// exactly as the CLI's <c>initialize</c> reply gives them (CLI 2.1.286, 2026-10-01). Only the
+        /// rows the picker's main section shows (Default and the newest model of each family); the
+        /// older generations arrive with the CLI's own list. A new release's rows also retire a
+        /// model list cached before them (<see cref="ModelListCache"/>).
         /// </summary>
         public static List<CliModelInfo> Fallback()
         {
             var full = new[] { "none", "low", "medium", "high", "extrahigh", "max", "ultracode" };
             return new List<CliModelInfo>
             {
-                new CliModelInfo { Id = "default",              Name = "Default (recommended)", Label = "Opus 5.5 with 1M context", Desc = "Best for everyday, complex tasks", Wire = "claude-opus-5-5[1m]", Ratio = ModelPricing.RatioFor("claude-opus-5-5[1m]"), Efforts = full, AutoMode = true },
-                new CliModelInfo { Id = "opus[1m]",             Name = "Opus (1M context)",     Label = "Opus 5.5 with 1M context", Desc = "Best for everyday, complex tasks", Wire = "claude-opus-5-5[1m]", Ratio = ModelPricing.RatioFor("claude-opus-5-5[1m]"), Efforts = full, AutoMode = true },
-                new CliModelInfo { Id = "claude-fable-5-1[1m]", Name = "Fable",                 Label = "Fable 5.1",  Desc = "Most capable for your hardest and longest-running tasks", Wire = "claude-fable-5-1", Ratio = ModelPricing.RatioFor("claude-fable-5-1"), Efforts = full, AutoMode = true },
-                new CliModelInfo { Id = "sonnet",               Name = "Sonnet",                Label = "Sonnet 5",   Desc = "Efficient for routine tasks", Wire = "claude-sonnet-5", Ratio = ModelPricing.RatioFor("claude-sonnet-5"), Efforts = new[] { "none", "low", "medium", "high", "extrahigh", "max" }, AutoMode = true },
-                new CliModelInfo { Id = "haiku",                Name = "Haiku",                 Label = "Haiku 4.5",  Desc = "Fastest for quick answers", Wire = "claude-haiku-4-5-20251001", Ratio = ModelPricing.RatioFor("claude-haiku-4-5-20251001"), Efforts = BudgetOnlyEfforts, AutoMode = false },
+                new CliModelInfo { Id = "default",          Name = "Default (recommended)", Label = "Opus 5.5", Desc = "Best for everyday, complex tasks", Wire = "claude-opus-5-5", Ratio = ModelPricing.RatioFor("claude-opus-5-5"), Efforts = full, AutoMode = true },
+                new CliModelInfo { Id = "opus",             Name = "Opus 5.5",   Label = "", Desc = "Best for everyday, complex tasks", Wire = "claude-opus-5-5", Ratio = ModelPricing.RatioFor("claude-opus-5-5"), Efforts = full, AutoMode = true },
+                new CliModelInfo { Id = "claude-fable-5-1", Name = "Fable 5.1",  Label = "", Desc = "Most capable for your hardest and longest-running tasks", Wire = "claude-fable-5-1", Ratio = ModelPricing.RatioFor("claude-fable-5-1"), Efforts = full, AutoMode = true },
+                new CliModelInfo { Id = "sonnet",           Name = "Sonnet 5.5", Label = "", Desc = "Efficient for routine tasks", Wire = "claude-sonnet-5-5", Ratio = ModelPricing.RatioFor("claude-sonnet-5-5"), Efforts = new[] { "none", "low", "medium", "high", "extrahigh", "max" }, AutoMode = true },
+                new CliModelInfo { Id = "haiku",            Name = "Haiku 4.5",  Label = "", Desc = "Fastest for quick answers", Wire = "claude-haiku-4-5-20251001", Ratio = ModelPricing.RatioFor("claude-haiku-4-5-20251001"), Efforts = BudgetOnlyEfforts, AutoMode = false },
             };
         }
 
@@ -138,6 +146,9 @@ namespace ClaudeCode.VisualStudio.Services
                     JsonElement t;
                     if (!root.TryGetProperty("type", out t) || t.ValueKind != JsonValueKind.String || t.GetString() != "control_response") return false;
                     JsonElement outer, inner, models;
+                    // The probe's get_context_usage reply is a control_response too, but not this one.
+                    if (root.TryGetProperty("response", out outer) && outer.ValueKind == JsonValueKind.Object &&
+                        Str(outer, "request_id") == ContextUsageRequestId) return false;
                     if (root.TryGetProperty("response", out outer) && outer.ValueKind == JsonValueKind.Object &&
                         outer.TryGetProperty("response", out inner) && inner.ValueKind == JsonValueKind.Object &&
                         inner.TryGetProperty("models", out models) && models.ValueKind == JsonValueKind.Array)
@@ -148,6 +159,58 @@ namespace ClaudeCode.VisualStudio.Services
                 }
             }
             catch { return false; }
+        }
+
+        /// <summary>Request id of the startup probe's <c>initialize</c> request.</summary>
+        internal const string InitializeRequestId = "req_probe_init";
+
+        /// <summary>Request id of the startup probe's <c>get_context_usage</c> request.</summary>
+        internal const string ContextUsageRequestId = "req_probe_ctx";
+
+        /// <summary>
+        /// Returns true when <paramref name="line"/> answers the probe's <c>get_context_usage</c>
+        /// request, with <paramref name="window"/> set to the CLI's <c>maxTokens</c> (0 when the
+        /// reply carries none, e.g. an error).
+        /// </summary>
+        internal static bool TryParseContextUsage(string line, out long window)
+        {
+            window = 0;
+            line = line == null ? null : line.Trim();
+            if (string.IsNullOrEmpty(line) || line[0] != '{' || line.IndexOf(ContextUsageRequestId, StringComparison.Ordinal) < 0) return false;
+            try
+            {
+                using (var doc = JsonDocument.Parse(line))
+                {
+                    JsonElement t, outer, inner, max;
+                    var root = doc.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object ||
+                        !root.TryGetProperty("type", out t) || t.ValueKind != JsonValueKind.String || t.GetString() != "control_response" ||
+                        !root.TryGetProperty("response", out outer) || outer.ValueKind != JsonValueKind.Object ||
+                        Str(outer, "request_id") != ContextUsageRequestId) return false;
+                    if (outer.TryGetProperty("response", out inner) && inner.ValueKind == JsonValueKind.Object &&
+                        inner.TryGetProperty("maxTokens", out max) && max.ValueKind == JsonValueKind.Number && max.TryGetInt64(out var w) && w > 0)
+                        window = w;
+                    return true;
+                }
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Puts the default model's measured window on the Default row and every row that resolves
+        /// to the same model (the explicit Opus row, today).
+        /// </summary>
+        public static void ApplyDefaultContextWindow(List<CliModelInfo> rows, long window)
+        {
+            if (rows == null || window <= 0) return;
+            var def = rows.Find(r => r != null && r.Id == "default");
+            if (def == null) return;
+            foreach (var r in rows)
+            {
+                if (r == null) continue;
+                if (r == def || (!string.IsNullOrEmpty(def.Wire) && string.Equals(r.Wire, def.Wire, StringComparison.OrdinalIgnoreCase)))
+                    r.ContextWindow = window;
+            }
         }
 
         /// <summary>Builds picker rows from the CLI's <c>models</c> array, skipping rows the picker cannot offer.</summary>

@@ -44,10 +44,11 @@ namespace ClaudeCode.VisualStudio.Services
     /// </summary>
     public static class ModelPricing
     {
-        // List prices, USD per million input/output tokens, as of 2026-09-26. The last fallback only.
+        // List prices, USD per million input/output tokens, as of 2026-10-01. The last fallback only.
         private static readonly Dictionary<string, double[]> BuiltInPrices = new Dictionary<string, double[]>(StringComparer.Ordinal)
         {
             ["claude-haiku-4-5"] = new[] { 1.0, 5.0 },
+            ["claude-sonnet-5-5"] = new[] { 2.0, 10.0 },
             ["claude-sonnet-5"] = new[] { 2.0, 10.0 },
             ["claude-sonnet-4-6"] = new[] { 3.0, 15.0 },
             ["claude-sonnet-4-5"] = new[] { 3.0, 15.0 },
@@ -68,7 +69,7 @@ namespace ClaudeCode.VisualStudio.Services
         private static readonly Dictionary<string, string> BuiltInAliases = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["opus"] = "claude-opus-5-5",
-            ["sonnet"] = "claude-sonnet-5",
+            ["sonnet"] = "claude-sonnet-5-5",
             ["haiku"] = "claude-haiku-4-5",
             ["fable"] = "claude-fable-5-1",
         };

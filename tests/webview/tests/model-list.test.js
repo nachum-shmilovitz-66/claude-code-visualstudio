@@ -168,7 +168,9 @@ describe("model list from the CLI", () => {
     });
     const ids = quickPicks(app).map((p) => p.id);
     assert.ok(!ids.includes("fable"), "the alias is one click in the main picker: " + ids.join(","));
-    assert.ok(!ids.includes("claude-opus-4-8[1m]"), "already a row: " + ids.join(","));
+    // Opus 4.8 is the CLI's own (older) row: listed once, as that row, not again as a quick-pick.
+    assert.strictEqual(ids.filter((id) => id === "claude-opus-4-8[1m]").length, 1, ids.join(","));
+    assert.strictEqual(ids[0], "claude-opus-4-8[1m]", "CLI rows come first: " + ids.join(","));
     assert.ok(ids.includes("claude-fable-5[1m]") && ids.includes("opus"), ids.join(","));
   });
 
@@ -191,5 +193,82 @@ describe("model list from the CLI", () => {
     app.pushMessage("system", { subtype: "init", model: "claude-fable-5-1" });
     app.pushMessage("contextUsage", { totalTokens: 50000 });
     assert.ok(app.$("ringBtn").title.startsWith("95%"), app.$("ringBtn").title);
+  });
+});
+
+// What CLI 2.1.286 reports (captured 2026-10-01): the newest model of each family, then the older
+// generations it can still run.
+const CLI_286 = [
+  { id: "default", name: "Default (recommended)", label: "Opus 5.5", desc: "Best for everyday, complex tasks", wire: "claude-opus-5-5", ratio: 5, autoMode: true },
+  { id: "opus", name: "Opus 5.5", label: "", desc: "Best for everyday, complex tasks", wire: "claude-opus-5-5", ratio: 5, autoMode: true },
+  { id: "claude-fable-5-1", name: "Fable 5.1", label: "", desc: "Most capable for your hardest and longest-running tasks", wire: "claude-fable-5-1", ratio: 10, autoMode: true },
+  { id: "sonnet", name: "Sonnet 5.5", label: "", desc: "Most efficient for simpler tasks", wire: "claude-sonnet-5-5", ratio: 2, autoMode: true },
+  { id: "haiku", name: "Haiku 4.5", label: "", desc: "Fastest for quick answers", wire: "claude-haiku-4-5-20251001", ratio: 1, autoMode: false },
+  { id: "claude-sonnet-5", name: "Sonnet 5", label: "", desc: "Efficient for routine tasks", wire: "claude-sonnet-5", ratio: 2, autoMode: true },
+  { id: "claude-opus-5", name: "Opus 5", label: "", desc: "Best for everyday, complex tasks", wire: "claude-opus-5", ratio: 5, autoMode: true },
+  { id: "claude-fable-5", name: "Fable 5", label: "", desc: "Most capable for your hardest and longest-running tasks", wire: "claude-fable-5", ratio: 10, autoMode: true },
+  { id: "claude-opus-4-8", name: "Opus 4.8", label: "", desc: "Best for everyday, complex tasks", wire: "claude-opus-4-8", ratio: 5, autoMode: true },
+  { id: "claude-sonnet-4-6", name: "Sonnet 4.6", label: "", desc: "Efficient for routine tasks", wire: "claude-sonnet-4-6", ratio: 3, autoMode: true },
+];
+const OLDER = ["claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6"];
+
+describe("model picker — one row per family", () => {
+  function booted286(model) {
+    const app = booted(model);
+    app.pushMessage("models", { models: CLI_286, effortsByModel: EFFORTS, source: "cli" });
+    return app;
+  }
+
+  it("lists Default and the newest model of each family, then Custom", () => {
+    const ids = pickerRows(booted286()).map((r) => r.id);
+    assert.deepStrictEqual(ids, ["default", "opus", "claude-fable-5-1", "sonnet", "haiku", "__custom"]);
+  });
+
+  it("moves the older generations to the Custom model screen, in the CLI's order", () => {
+    const ids = quickPicks(booted286()).map((p) => p.id);
+    assert.deepStrictEqual(ids.slice(0, OLDER.length), OLDER);
+  });
+
+  it("selects an older model from the Custom screen and marks the Custom row", () => {
+    const app = booted286();
+    quickPicks(app);
+    app.$("popover").querySelectorAll("#customSuggest .opt")
+      .find((o) => o.getAttribute("data-id") === "claude-opus-4-8").click();
+    assert.strictEqual(app.sent("setModel").pop().payload.model, "claude-opus-4-8");
+    const sel = pickerRows(app).find((r) => r.text.includes("✓"));
+    assert.strictEqual(sel && sel.id, "__custom");
+    assert.ok(sel.text.includes("Opus 4.8 · claude-opus-4-8"), sel.text);
+    // ...and the Custom screen checks it.
+    app.$("modelBtn").click(); // close the picker pickerRows left open
+    const pick = quickPicks(app).find((p) => p.id === "claude-opus-4-8");
+    assert.ok(pick.text.includes("✓"), pick.text);
+  });
+
+  it("keeps a stored older model selected rather than moving it to its family's row", () => {
+    const app = booted286("claude-sonnet-4-6");
+    assert.strictEqual(app.sent("setModel").length, 0);
+    assert.ok(app.$("modelBtn").textContent.includes("Sonnet 4.6"), app.$("modelBtn").textContent);
+  });
+});
+
+describe("new session", () => {
+  it("resets model, effort and mode to the defaults the host sends", () => {
+    const app = booted("sonnet", { effort: "low", permissionMode: "acceptEdits" });
+    app.pushMessage("models", { models: CLI_286, effortsByModel: EFFORTS, source: "cli" });
+    app.pushMessage("clear", { model: "default", effort: "extrahigh", mode: "bypassPermissions" });
+    assert.ok(app.$("modelBtn").textContent.startsWith("Opus 5.5"), app.$("modelBtn").textContent);
+    assert.strictEqual(app.$("modeLabel").textContent, "Auto");
+    const rows = pickerRows(app);
+    assert.strictEqual(rows.find((r) => r.text.includes("✓")).id, "default");
+    const slider = app.$("popover").querySelector("#effslider");
+    assert.strictEqual(slider.getAttribute("value"), String(FULL.indexOf("extrahigh")));
+    assert.strictEqual(app.sent("setModel").length, 0, "the host already holds these; nothing echoes back");
+    assert.strictEqual(app.sent("setEffort").length, 0);
+  });
+
+  it("an empty clear (the /clear command) leaves the options alone", () => {
+    const app = booted("sonnet");
+    app.pushMessage("clear", {});
+    assert.ok(app.$("modelBtn").textContent.startsWith("Sonnet"), app.$("modelBtn").textContent);
   });
 });

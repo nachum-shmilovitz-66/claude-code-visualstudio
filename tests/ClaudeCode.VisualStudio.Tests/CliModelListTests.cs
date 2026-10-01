@@ -39,17 +39,43 @@ namespace ClaudeCode.VisualStudio.Tests
                 "]}}}";
         }
 
-        // The reply CLI 2.1.283 gives (2026-09-26), as the picker showed it: Opus 5.5 is the default.
-        private static string ControlResponse283()
+        // A CLI row whose description is the blurb alone (the model is named in displayName).
+        private static string Plain(string value, string resolved, string name, string blurb, string levels, string extra)
+        {
+            return "{\"value\":\"" + value + "\",\"resolvedModel\":\"" + resolved + "\",\"displayName\":\"" + name + "\"" +
+                   ",\"description\":\"" + blurb + "\"" +
+                   (levels != null ? ",\"supportsEffort\":true,\"supportedEffortLevels\":[" + levels + "]" : "") +
+                   extra + "}";
+        }
+
+        // The reply CLI 2.1.286 gives (2026-10-01): Opus 5.5 is the default. The newest model of each
+        // family comes first, then the older generations the CLI can still run.
+        private static string ControlResponse286()
         {
             const string all = "\"low\",\"medium\",\"high\",\"xhigh\",\"max\"";
+            const string noX = "\"low\",\"medium\",\"high\",\"max\"";
+            const string auto = ",\"supportsAutoMode\":true";
             return "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_probe_init\",\"response\":{\"commands\":[],\"models\":[" +
-                Row("default", "claude-opus-5-5[1m]", "Default (recommended)", "Opus 5.5 with 1M context", "Best for everyday, complex tasks", all, ",\"supportsAutoMode\":true") + "," +
-                Row("opus[1m]", "claude-opus-5-5[1m]", "Opus (1M context)", "Opus 5.5 with 1M context", "Best for everyday, complex tasks", all, ",\"supportsAutoMode\":true") + "," +
-                Row("claude-fable-5-1[1m]", "claude-fable-5-1", "Fable", "Fable 5.1", "Most capable for your hardest and longest-running tasks", all, ",\"supportsAutoMode\":true") + "," +
-                Row("sonnet", "claude-sonnet-5", "Sonnet", "Sonnet 5", "Efficient for routine tasks", all, ",\"supportsAutoMode\":true") + "," +
-                Row("haiku", "claude-haiku-4-5-20251001", "Haiku", "Haiku 4.5", "Fastest for quick answers", null, "") +
+                Row("default", "claude-opus-5-5", "Default (recommended)", "Opus 5.5", "Best for everyday, complex tasks", all, auto) + "," +
+                Plain("opus", "claude-opus-5-5", "Opus 5.5", "Best for everyday, complex tasks", all, auto) + "," +
+                Plain("claude-fable-5-1", "claude-fable-5-1", "Fable 5.1", "Most capable for your hardest and longest-running tasks", all, auto) + "," +
+                Plain("sonnet", "claude-sonnet-5-5", "Sonnet 5.5", "Efficient for routine tasks", all, auto) + "," +
+                Plain("haiku", "claude-haiku-4-5-20251001", "Haiku 4.5", "Fastest for quick answers", null, "") + "," +
+                Plain("claude-sonnet-5", "claude-sonnet-5", "Sonnet 5", "Efficient for routine tasks", all, auto) + "," +
+                Plain("claude-opus-5", "claude-opus-5", "Opus 5", "Best for everyday, complex tasks", all, auto) + "," +
+                Plain("claude-fable-5", "claude-fable-5", "Fable 5", "Most capable for your hardest and longest-running tasks", all, auto) + "," +
+                Plain("claude-opus-4-8", "claude-opus-4-8", "Opus 4.8", "Best for everyday, complex tasks", all, auto) + "," +
+                Plain("claude-opus-4-7", "claude-opus-4-7", "Opus 4.7", "Best for everyday, complex tasks", all, auto) + "," +
+                Plain("claude-opus-4-6", "claude-opus-4-6", "Opus 4.6", "Best for everyday, complex tasks", noX, auto) + "," +
+                Plain("claude-sonnet-4-6", "claude-sonnet-4-6", "Sonnet 4.6", "Efficient for routine tasks", noX, auto) +
                 "]}}}";
+        }
+
+        // The rows the picker's main section shows: Default, then the first row of each family.
+        private static List<CliModelInfo> MainRows(List<CliModelInfo> rows)
+        {
+            var seen = new HashSet<string>();
+            return rows.Where(r => r.Id == "default" || seen.Add(CliModelList.FamilyOf(r.Wire ?? r.Id))).ToList();
         }
 
         [TestMethod]
@@ -166,7 +192,7 @@ namespace ClaudeCode.VisualStudio.Tests
         public void EffortsByModel_NamesEachStep()
         {
             var map = CliModelList.EffortsByModel(CliModelList.Fallback());
-            CollectionAssert.AreEquivalent(new[] { "default", "opus[1m]", "claude-fable-5-1[1m]", "sonnet", "haiku" }, map.Keys.ToArray());
+            CollectionAssert.AreEquivalent(new[] { "default", "opus", "claude-fable-5-1", "sonnet", "haiku" }, map.Keys.ToArray());
             var def = JsonSerializer.Serialize(map["default"]);
             StringAssert.Contains(def, "{\"id\":\"none\",\"name\":\"Off\"}");
             StringAssert.Contains(def, "{\"id\":\"extrahigh\",\"name\":\"Extra high\"}");
@@ -193,7 +219,9 @@ namespace ClaudeCode.VisualStudio.Tests
         public void Fallback_MatchesTheCurrentCliList()
         {
             var cli = new List<CliModelInfo>();
-            Assert.IsTrue(CliModelList.TryParseControlResponse(ControlResponse283(), cli));
+            Assert.IsTrue(CliModelList.TryParseControlResponse(ControlResponse286(), cli));
+            Assert.AreEqual(12, cli.Count);
+            cli = MainRows(cli);
             var fb = CliModelList.Fallback();
             CollectionAssert.AreEqual(cli.Select(r => r.Id).ToArray(), fb.Select(r => r.Id).ToArray());
             for (int i = 0; i < cli.Count; i++)
@@ -206,7 +234,7 @@ namespace ClaudeCode.VisualStudio.Tests
                 Assert.AreEqual(cli[i].AutoMode, fb[i].AutoMode, cli[i].Id);
                 CollectionAssert.AreEqual(cli[i].Efforts, fb[i].Efforts, cli[i].Id);
             }
-            Assert.AreEqual("Opus 5.5 with 1M context", fb[0].Label);
+            Assert.AreEqual("Opus 5.5", fb[0].Label);
             Assert.AreEqual(4.0, fb[0].Ratio);
         }
 
@@ -214,7 +242,7 @@ namespace ClaudeCode.VisualStudio.Tests
         public void DefaultsStamp_FollowsTheFallbackRows()
         {
             var stamp = CliModelList.DefaultsStamp();
-            StringAssert.Contains(stamp, "default=claude-opus-5-5[1m]");
+            StringAssert.Contains(stamp, "default=claude-opus-5-5,");
             Assert.AreEqual(stamp, CliModelList.DefaultsStamp());
         }
 
@@ -244,6 +272,54 @@ namespace ClaudeCode.VisualStudio.Tests
                 Assert.AreEqual(5.0, rows[1].Ratio);
                 Assert.IsNull(rows[2].Ratio, "a model no price table knows gets no badge, not a family guess");
             }
+        }
+
+        // The reply CLI 2.1.286 gives to get_context_usage before any message (trimmed; captured 2026-10-01).
+        private const string ContextUsageReply =
+            "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_probe_ctx\",\"response\":" +
+            "{\"categories\":[{\"name\":\"System prompt\",\"tokens\":2243,\"kind\":\"used\"}],\"totalTokens\":27891," +
+            "\"maxTokens\":1000000,\"rawMaxTokens\":1000000,\"autocompactSource\":\"model-default\",\"percentage\":3}}}";
+
+        [TestMethod]
+        public void TryParseContextUsage_ReadsTheWindow()
+        {
+            long w;
+            Assert.IsTrue(CliModelList.TryParseContextUsage(ContextUsageReply, out w));
+            Assert.AreEqual(1000000L, w);
+        }
+
+        [TestMethod]
+        public void TryParseContextUsage_IgnoresOtherLines_AndToleratesAnErrorReply()
+        {
+            long w;
+            Assert.IsFalse(CliModelList.TryParseContextUsage(ControlResponse286(), out w));
+            Assert.IsFalse(CliModelList.TryParseContextUsage("{\"type\":\"system\",\"subtype\":\"init\"}", out w));
+            Assert.IsTrue(CliModelList.TryParseContextUsage(
+                "{\"type\":\"control_response\",\"response\":{\"subtype\":\"error\",\"request_id\":\"req_probe_ctx\",\"error\":\"nope\"}}", out w));
+            Assert.AreEqual(0L, w);
+        }
+
+        [TestMethod]
+        public void TryParseControlResponse_IsNotFooledByTheContextUsageReply()
+        {
+            var rows = new List<CliModelInfo>();
+            Assert.IsFalse(CliModelList.TryParseControlResponse(ContextUsageReply, rows));
+            Assert.AreEqual(0, rows.Count);
+        }
+
+        [TestMethod]
+        public void ApplyDefaultContextWindow_MarksTheRowsRunningTheDefaultModel()
+        {
+            var rows = new List<CliModelInfo>();
+            CliModelList.TryParseControlResponse(ControlResponse286(), rows);
+            CliModelList.ApplyDefaultContextWindow(rows, 1000000);
+            Assert.AreEqual(1000000L, rows.Single(r => r.Id == "default").ContextWindow);
+            Assert.AreEqual(1000000L, rows.Single(r => r.Id == "opus").ContextWindow, "same model as Default");
+            Assert.IsNull(rows.Single(r => r.Id == "sonnet").ContextWindow, "not measured");
+            Assert.IsNull(rows.Single(r => r.Id == "claude-opus-5").ContextWindow, "another Opus generation");
+
+            CliModelList.ApplyDefaultContextWindow(rows, 0);
+            Assert.AreEqual(1000000L, rows.Single(r => r.Id == "default").ContextWindow, "an unknown window changes nothing");
         }
     }
 }

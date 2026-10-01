@@ -25,6 +25,9 @@
   // `live` = ctx.used came from per-request usage (contextUsage) rather than the cumulative
   // turn totals in `result`, which overcount and must not win once real numbers are in.
   const ctx = { used: 0, window: 200000, windowReported: false, model: "", baseline: 0, system: 0, live: false };
+  // Windows the CLI has reported, by model id (lower-case) — so switching back to a model
+  // already used in this panel measures against its real window before its next turn.
+  const seenWindows = Object.create(null);
   // Post-compaction token count, held across the compaction turn's trailing `result` event.
   let compactPin = 0;
   let topOpen = null, cOpen = null;
@@ -455,7 +458,10 @@
       // counts the cached prefix once per request and races past 100% of the window.
       if (compactPin) { ctx.used = compactPin; ctx.live = false; compactPin = 0; }
       else if (!ctx.live) ctx.used = (+(p.inputTokens || 0)) + (+(p.cacheReadTokens || 0)) + (+(p.cacheCreationTokens || 0));
-      if (p.contextWindow) { ctx.window = +p.contextWindow; ctx.windowReported = true; }
+      if (p.contextWindow) {
+        ctx.window = +p.contextWindow; ctx.windowReported = true;
+        if (p.model) seenWindows[String(p.model).toLowerCase()] = ctx.window;
+      }
       if (p.model) { ctx.model = p.model; updateModelBtn(); }
       ctx.system = Math.min(ctx.baseline || 0, ctx.used);
       updateRing();
@@ -482,8 +488,22 @@
       if (lb) lb.addEventListener("click", () => { authFlow = { state: "starting" }; post("startLogin"); renderSetupBanner(lastSetup || {}); });
       post("recheckSetup"); // refresh the onboarding banner after a failure
     },
-    system: (p) => { if (p.subtype === "init" && p.model) { ctx.model = p.model; updateModelBtn(); } },
-    clear: () => { els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear(); },
+    // A reported window belongs to the model it was reported for; a turn on another model drops it.
+    system: (p) => {
+      if (p.subtype !== "init" || !p.model) return;
+      if (ctx.model && ctx.model !== p.model) ctx.windowReported = false;
+      ctx.model = p.model; updateModelBtn(); updateRing();
+    },
+    // A new session: the host resets model, effort and mode to Claude's defaults and says which.
+    clear: (p) => {
+      els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear();
+      if (!p || !p.model) return;
+      cur.model = p.model; reconcileModelId();
+      if (p.effort) cur.effort = p.effort;
+      if (p.mode) { cur.mode = p.mode; updateModeLabel(); }
+      applyEffortsForModel();
+      ctx.model = ""; ctx.windowReported = false; updateModelBtn(); updateRing();
+    },
     restore: (p) => {
       endTurn(); els.messages.innerHTML = ""; toolCards.clear();
       if (p.model) { cur.model = p.model; reconcileModelId(); }
@@ -623,8 +643,9 @@
   }
   // Maps a fallback picker id to the wire name handed to the CLI, also shown in the "Switched to"
   // divider. All aliases, never dated ids — the CLI resolves each to the newest model in that
-  // family at launch. Mirrors ClaudeSession.DefaultModel. Only a fallback: once the host relays
-  // the CLI's own list, each row carries the canonical id it resolves to (`wire`), and that wins.
+  // family at launch. "default" launches without --model, on the CLI's own recommendation; its
+  // entry here only names what that is (a 1M Opus) until a row says. Only a fallback: once the
+  // host relays the CLI's own list, each row carries the canonical id it resolves to (`wire`).
   const MODEL_WIRE = { default: "opus[1m]", fable: "fable", sonnet: "sonnet", haiku: "haiku" };
   function wireOf(id) { const row = models.find((m) => m.id === id); return (row && row.wire) || own(MODEL_WIRE, id) || id; }
   function is1m(s) { return /\[1m\]/i.test(String(s || "")); }
@@ -639,18 +660,33 @@
     let row = models.find((m) => m.id !== "default" && String(m.wire || "").toLowerCase() === lc)
       || models.find((m) => String(m.wire || "").toLowerCase() === lc);
     if (!row && Object.prototype.hasOwnProperty.call(MODEL_WIRE, cur.model)) {
-      const fam = (s) => String(s || "").toLowerCase().replace(/\[1m\]/g, "").replace(/^claude-/, "").split("-")[0];
-      const same = models.filter((m) => m.id !== "default" && fam(m.wire || m.id) === fam(cur.model));
+      const same = models.filter((m) => m.id !== "default" && familyOf(m.wire || m.id) === familyOf(cur.model));
       row = same.find((m) => is1m(m.id) === is1m(cur.model)) || (same.length === 1 ? same[0] : null);
     }
     if (!row) return;
     cur.model = row.id;
     post("setModel", { model: cur.model });
   }
+  // "claude-opus-4-8[1m]", "opus" -> "opus".
+  function familyOf(s) { return String(s || "").toLowerCase().replace(/\[1m\]/g, "").replace(/^claude-/, "").split("-")[0]; }
+  // The CLI lists every model it can run, newest first within a family, older generations after
+  // (Opus 5.5 ... Opus 4.6). The picker shows Default plus the first row of each family; the
+  // rest are one click away on the Custom model screen.
+  function mainModels() {
+    const seen = new Set();
+    return models.filter((m) => {
+      if (m.id === "default") return true;
+      const f = familyOf(m.wire || m.id);
+      if (seen.has(f)) return false;
+      seen.add(f);
+      return true;
+    });
+  }
+  function moreModels() { const main = mainModels(); return models.filter((m) => main.indexOf(m) < 0); }
   // Quick-picks shown under the Custom-model input — click to fill + apply. What the main picker
   // does not already offer one-click: the other context/family combinations, the always-newest
-  // aliases, and pinned older snapshots — the CLI reports only what it currently offers, never a
-  // superseded id, so this half stays a hand-kept list. Still open-ended: any valid id works
+  // aliases, and pinned older snapshots. The CLI's own older rows (moreModels) are listed above
+  // these; this half is hand-kept and drops whatever the CLI already lists. Still open-ended: any valid id works
   // (dated snapshots, [1m] 1M-context variants, etc). Availability depends on the CLI/account.
   // The display name is derived with prettyModel(), so these rows read the same
   // "<model> · <what it is for>" way as the main picker without repeating the name here.
@@ -699,6 +735,13 @@
   // measured against the 200k default made the ring read 5× the dialog's percentage.
   function ctxWindow() {
     if (ctx.windowReported && ctx.window) return ctx.window;
+    // A window the CLI reported for this model before: on its picker row (the startup probe
+    // measures the default model's), or from an earlier turn's result in this panel.
+    const base = (s) => String(s || "").toLowerCase().replace(/\[1m\]/g, "");
+    const sel = models.find((m) => m.id === cur.model);
+    if (sel && sel.contextWindow > 0 && (!ctx.model || base(ctx.model) === base(sel.wire))) return +sel.contextWindow;
+    const seen = own(seenWindows, String(ctx.model || wireOf(cur.model)).toLowerCase());
+    if (seen) return seen;
     if (is1m(ctx.model || wireOf(cur.model))) return 1000000;
     // The CLI names a model that is 1M by default (Fable) without the suffix, while its picker
     // row carries it ("claude-fable-5-1[1m]"): trust the row when the CLI id is that row's model.
@@ -926,7 +969,8 @@
 
   function renderModel() {
     let h = '<h3>Select a model <button class="close-x">×</button></h3>';
-    models.forEach((m) => {
+    const main = mainModels();
+    main.forEach((m) => {
       // Row reads "<model> · <what it is for>", matching the VS Code panel. The model half is the
       // CLI-resolved id when we know it (the selected row, after a session has started), else the
       // host's fallback label.
@@ -934,15 +978,18 @@
       const line = label ? (m.desc ? label + " · " + m.desc : label) : (m.desc || "");
       h += '<div class="opt' + (m.id === cur.model ? " sel" : "") + '" data-id="' + m.id + '"><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(line) + '</div></div>' + ratioBadge(m.ratio) + (m.id === cur.model ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
-    const isCustom = !!cur.model && !models.some((m) => m.id === cur.model);
+    // An older CLI row (listed on the Custom screen) or a typed id selects the Custom row.
+    const isCustom = !!cur.model && !main.some((m) => m.id === cur.model);
     // A selected custom id reads the same way as the built-in rows: friendly name, then the id.
+    const curRow = models.find((m) => m.id === cur.model);
+    const curName = (curRow && curRow.name) || prettyModel(cur.model);
     const customLine = isCustom
-      ? ((prettyModel(cur.model) ? prettyModel(cur.model) + " · " : "") + cur.model)
-      : "Any model id or alias, e.g. sonnet[1m]";
+      ? ((curName ? curName + " · " : "") + cur.model)
+      : "Any model id or alias, or an older model";
     h += '<div class="opt' + (isCustom ? " sel" : "") + '" data-id="__custom"><div class="obody"><div class="oname">Custom model…</div><div class="odesc">' + window.md.esc(customLine) + '</div></div>' + (isCustom ? '<div class="ochk">✓</div>' : "") + "</div>";
     const ei = Math.max(0, efforts.findIndex((x) => x.id === cur.effort));
-    const curName = (efforts[ei] || {}).name || "Off";
-    h += '<div class="effort-row"><div class="elabel">' + DUMBBELL + ' Effort <small id="effdesc">(' + window.md.esc(curName + " — " + effortDesc(cur.effort)) + ')</small></div><input type="range" class="effort-slider" id="effslider" min="0" max="' + (efforts.length - 1) + '" value="' + ei + '" /></div>';
+    const effName = (efforts[ei] || {}).name || "Off";
+    h += '<div class="effort-row"><div class="elabel">' + DUMBBELL + ' Effort <small id="effdesc">(' + window.md.esc(effName + " — " + effortDesc(cur.effort)) + ')</small></div><input type="range" class="effort-slider" id="effslider" min="0" max="' + (efforts.length - 1) + '" value="' + ei + '" /></div>';
     showTop(h);
     els.popover.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => {
       if (o.dataset.id === "__custom") { renderCustomModel(); return; }
@@ -966,6 +1013,12 @@
     h += '<div class="note err" id="customModelErr"></div>';
     h += '<div class="note">Type any model id or alias, or pick a known one:</div>';
     h += '<div id="customSuggest">';
+    // The CLI's older models first, shaped like the main picker's rows (they are CLI rows too).
+    moreModels().forEach((m) => {
+      const sel = m.id === cur.model;
+      const line = m.desc ? m.desc + " · " + m.id : m.id;
+      h += '<div class="opt' + (sel ? " sel" : "") + '" data-id="' + window.md.esc(m.id) + '"><div class="obody"><div class="oname">' + window.md.esc(m.name || prettyModel(m.id) || m.id) + '</div><div class="odesc">' + window.md.esc(line) + '</div></div>' + ratioBadge(m.ratio) + (sel ? '<div class="ochk">✓</div>' : "") + "</div>";
+    });
     modelSuggestions().forEach((s) => {
       // Same shape as the main picker: bold model name, then "<what it is for> · <wire id>".
       // The id stays visible here because this screen is about picking a specific id.

@@ -7,6 +7,39 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.21] - 2026-10-01
+
+- **The model picker shows one row per family.** CLI 2.1.286 lists every model it can still run -
+  Opus 5.5, 5, 4.8, 4.7, 4.6, two Sonnets and two Fables besides the current ones - and the picker
+  showed all twelve. It now shows Default and the newest model of each family (Opus 5.5, Fable 5.1,
+  Sonnet 5.5, Haiku 4.5); the older generations sit at the top of the Custom model screen, in the
+  CLI's order and with their cost badges, and picking one marks the Custom row with its name.
+
+- **A new session starts on Claude's defaults, not the last session's picks.** "New session" kept
+  whatever model, effort and permission mode the previous conversation ended on, and opening a
+  folder with no conversation to resume restored the options an earlier, empty session was left
+  on. Both now start on the CLI's recommended model, the effort configured for Claude
+  (`CLAUDE_CODE_EFFORT_LEVEL`, else `effortLevel` from the project and user settings files, else
+  the CLI's own High) and Auto mode (or `permissions.defaultMode` when a settings file names one).
+  A resumed conversation still comes back with the options it was saved with.
+
+- **Default runs the model the CLI recommends.** The Default row launched a hardcoded
+  `--model opus[1m]`; it now passes no model at all, so the CLI runs its own recommendation -
+  including a `model` set in the user's settings - and a new recommendation needs no extension
+  update.
+
+- **The context ring measures a 1M model against 1M.** Two separate mistakes made a 1M Opus 5.5
+  session read as 200k. After a turn that ran a subagent, the CLI reports usage per model, and the
+  extension took the first entry - often the Haiku subagent's 200k window - and labelled it with
+  the Opus name; it now takes the conversation's own model. And before the first turn the ring
+  guessed the window from a `[1m]` suffix that CLI 2.1.286 no longer puts on Opus 5.5; the startup
+  probe now asks the CLI (`get_context_usage`) for the default model's real window, keeps it with
+  the cached model list, and the ring remembers each window a turn reports.
+
+- **Defaults refreshed for CLI 2.1.286.** The picker's first-run rows are the CLI's current main
+  rows, and the built-in price table knows Sonnet 5.5 ($2/$10), which the `sonnet` alias now
+  resolves to.
+
 ## [1.0.18] - 2026-09-26
 
 - **Cost badges price each model, so Opus 5.5 reads 4x, not 5x.** The badge came from a table keyed

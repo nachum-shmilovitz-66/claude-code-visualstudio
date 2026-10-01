@@ -31,16 +31,20 @@ namespace ClaudeCode.VisualStudio.Tests
         {
             var rows = CliModelList.Fallback();
             rows[2].Label = "Fable 5.1";
+            CliModelList.ApplyDefaultContextWindow(rows, 1000000);
             ModelListCache.Save(rows);
 
             var got = ModelListCache.Load();
             Assert.IsNotNull(got);
             Assert.AreEqual(rows.Count, got.Count);
-            Assert.AreEqual("claude-fable-5-1[1m]", got[2].Id);
+            Assert.AreEqual("claude-fable-5-1", got[2].Id);
             Assert.AreEqual("Fable 5.1", got[2].Label);
             Assert.AreEqual(10.0, got[2].Ratio);
             Assert.IsFalse(got[4].AutoMode);
             CollectionAssert.AreEqual(rows[4].Efforts, got[4].Efforts);
+            // The measured window survives a restart, so the ring is right before the probe answers.
+            Assert.AreEqual(1000000L, got[0].ContextWindow);
+            Assert.IsNull(got[3].ContextWindow);
         }
 
         [TestMethod]

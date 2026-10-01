@@ -46,6 +46,50 @@ describe("context ring", () => {
     assert.ok(app.$("ringBtn").title.startsWith("75%"), app.$("ringBtn").title);
   });
 
+  it("drops a reported window when the next turn runs on another model", () => {
+    // A 200k window reported for one model must not stick to the 1M model that answers next.
+    const app = booted();
+    app.pushMessage("result", { contextWindow: 200000, model: "claude-haiku-4-5-20251001" });
+    app.pushMessage("system", { subtype: "init", model: "claude-opus-5-5[1m]" });
+    app.pushMessage("contextUsage", { totalTokens: 50000 });
+    assert.ok(app.$("ringBtn").title.startsWith("95%"), app.$("ringBtn").title);
+  });
+
+  it("keeps a reported window across turns on the same model", () => {
+    const app = booted();
+    app.pushMessage("system", { subtype: "init", model: "claude-opus-5-5" });
+    app.pushMessage("result", { contextWindow: 1000000, model: "claude-opus-5-5" });
+    app.pushMessage("system", { subtype: "init", model: "claude-opus-5-5" });
+    app.pushMessage("contextUsage", { totalTokens: 50000 });
+    assert.ok(app.$("ringBtn").title.startsWith("95%"), app.$("ringBtn").title);
+  });
+
+  it("uses the window the CLI measured for the default model before the first turn", () => {
+    // CLI 2.1.286 names Opus 5.5 without [1m]; only the probe's get_context_usage says it is 1M.
+    const app = boot();
+    app.pushMessage("init", { models: [
+      { id: "default", name: "Default (recommended)", label: "Opus 5.5", wire: "claude-opus-5-5", contextWindow: 1000000 },
+      { id: "sonnet", name: "Sonnet 5.5", wire: "claude-sonnet-5-5" },
+    ], model: "default", modes: [], efforts: [] });
+    app.pushMessage("contextUsage", { totalTokens: 50000 });
+    assert.ok(app.$("ringBtn").title.startsWith("95%"), app.$("ringBtn").title);
+    // Still right once the turn has started and the CLI has named the model, before any result.
+    app.pushMessage("system", { subtype: "init", model: "claude-opus-5-5" });
+    app.pushMessage("contextUsage", { totalTokens: 50000 });
+    assert.ok(app.$("ringBtn").title.startsWith("95%"), app.$("ringBtn").title);
+  });
+
+  it("remembers a reported window when switching back to that model", () => {
+    const app = booted();
+    app.pushMessage("system", { subtype: "init", model: "claude-opus-5-5" });
+    app.pushMessage("result", { contextWindow: 1000000, model: "claude-opus-5-5" });
+    app.pushMessage("system", { subtype: "init", model: "claude-sonnet-5" });
+    app.pushMessage("result", { contextWindow: 200000, model: "claude-sonnet-5" });
+    app.pushMessage("system", { subtype: "init", model: "claude-opus-5-5" });
+    app.pushMessage("contextUsage", { totalTokens: 50000 });
+    assert.ok(app.$("ringBtn").title.startsWith("95%"), app.$("ringBtn").title);
+  });
+
   it("never reports past full, however large the reported usage", () => {
     const app = booted();
     app.pushMessage("contextUsage", { totalTokens: 999999999 });

@@ -23,8 +23,10 @@ namespace ClaudeCode.VisualStudio
         private readonly WebViewHost _host;
 
         private ClaudeSession _session;
-        private string _model = "default";
-        private string _permissionMode = "default";   // safest default: ask before edits
+        // A new session starts on Claude's defaults (ApplyNewSessionDefaults); a resumed one on
+        // the options it was saved with.
+        private string _model = ClaudeDefaults.Model;
+        private string _permissionMode = "default";
         private string _effort = "none";
         private bool _showThinking = true;
 
@@ -551,6 +553,9 @@ namespace ClaudeCode.VisualStudio
                         var liveModels = probe.Models != null && probe.Models.Count > 0 ? probe.Models : null;
                         if (liveModels != null)
                         {
+                            // The default model's window, measured by the probe, so the ring reads
+                            // against the right size before the first turn (and from cache next time).
+                            CliModelList.ApplyDefaultContextWindow(liveModels, probe.DefaultContextWindow);
                             ModelListCache.Save(liveModels);
                             PostModels(liveModels, "cli");
                         }
@@ -1415,11 +1420,15 @@ namespace ClaudeCode.VisualStudio
 
         private void SendInit()
         {
+            // Nothing to resume yet: start on Claude's defaults. TryRestoreForCwd swaps in a saved
+            // conversation's options if this working directory has one.
+            if (_record == null && _session == null) ApplyNewSessionDefaults();
+
             // Fallback rows only: SendCommands swaps in the CLI's own list (cached, then live).
             var fallback = CliModelList.Fallback();
             _host.PostMessage("init", new
             {
-                version = "1.0.18",
+                version = "1.0.21",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -1484,15 +1493,28 @@ namespace ClaudeCode.VisualStudio
             if (_record != null || _session != null) return;
 
             var rec = SessionStore.Load(_cwd);
-            if (rec == null)
+            bool hasMsgs = rec != null && rec.Messages != null && rec.Messages.Count > 0;
+            if (!hasMsgs)
             {
-                Log.Write("restore: no stored session for cwd=" + _cwd);
+                // No conversation to resume, so this is a new session: Claude's defaults for this
+                // directory (its project settings can name an effort or mode), not the options a
+                // previous, empty session was left on. Show-thinking is a view preference and stays.
+                Log.Write("restore: no stored conversation for cwd=" + _cwd);
+                if (rec != null) _showThinking = rec.ShowThinking;
+                ApplyNewSessionDefaults();
+                _host.PostMessage("restore", new
+                {
+                    messages = new System.Collections.Generic.List<StoredMessage>(),
+                    model = _model,
+                    mode = _permissionMode,
+                    effort = _effort,
+                    showThinking = _showThinking,
+                });
                 return;
             }
 
-            bool hasMsgs = rec.Messages != null && rec.Messages.Count > 0;
             _record = rec;
-            if (hasMsgs && !string.IsNullOrEmpty(rec.SessionId)) _pendingResumeId = rec.SessionId;
+            if (!string.IsNullOrEmpty(rec.SessionId)) _pendingResumeId = rec.SessionId;
             _model = InputValidation.SanitizeModel(rec.Model, "default");
             _permissionMode = InputValidation.SanitizeChoice(rec.Mode, InputValidation.AllowedModes, "default");
             _effort = InputValidation.SanitizeChoice(rec.Effort, InputValidation.AllowedEfforts, "none");
@@ -2137,7 +2159,20 @@ namespace ClaudeCode.VisualStudio
             _pendingResumeId = null;
             _record = null;
             SessionStore.Clear(_cwd);
-            _host.PostMessage("clear", new { });
+            ApplyNewSessionDefaults();
+            _host.PostMessage("clear", new { model = _model, mode = _permissionMode, effort = _effort });
+        }
+
+        // Model, effort and permission mode a new session starts on: Claude's own defaults (the
+        // CLI's recommended model, the configured effort and default mode), never the previous
+        // session's picks. The next send relaunches with them.
+        private void ApplyNewSessionDefaults()
+        {
+            _model = ClaudeDefaults.Model;
+            _effort = ClaudeDefaults.Effort(_cwd);
+            _permissionMode = ClaudeDefaults.PermissionMode(_cwd);
+            _optionsDirty = true;
+            Log.Write("new-session defaults: model=" + _model + " effort=" + _effort + " mode=" + _permissionMode);
         }
 
         // Persist a turn to the per-cwd session store so the conversation can be restored later.
