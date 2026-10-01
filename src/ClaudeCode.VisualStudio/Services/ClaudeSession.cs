@@ -71,6 +71,9 @@ namespace ClaudeCode.VisualStudio.Services
         // any subagent's (PickMainModelUsage).
         private string _mainModel;
 
+        // The running CLI's process id, kept for the log after the Process object is gone.
+        private int _pid;
+
         // Per-message streaming state: content block index -> kind/tool accumulation.
         private readonly Dictionary<int, BlockState> _blocks = new Dictionary<int, BlockState>();
 
@@ -182,7 +185,8 @@ namespace ClaudeCode.VisualStudio.Services
             try
             {
                 _process.Start();
-                Log.Write("Process.Start OK pid=" + _process.Id);
+                _pid = _process.Id;
+                Log.Write("Process.Start OK pid=" + _pid);
             }
             catch (Exception ex)
             {
@@ -522,7 +526,8 @@ namespace ClaudeCode.VisualStudio.Services
                     try { HandleLine(line); }
                     catch (Exception ex) { Diagnostic?.Invoke("parse error: " + ex.Message + " :: " + Trunc(line)); }
                 }
-                Log.Write("stdout closed");
+                // No "stopping CLI" line just before this one means the CLI ended on its own.
+                Log.Write("stdout closed (CLI pid=" + _pid + ")");
             }
             catch (Exception ex)
             {
@@ -1036,6 +1041,21 @@ namespace ClaudeCode.VisualStudio.Services
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Stops the CLI and records why. Stopping a process mid-turn cuts the turn off, so every
+        /// stop names its cause in the log - "stdout closed" alone could never say who did it.
+        /// </summary>
+        public void Dispose(string reason)
+        {
+            try
+            {
+                if (_process != null && !_process.HasExited)
+                    Log.Write("stopping CLI pid=" + _process.Id + ": " + reason);
+            }
+            catch { }
+            Dispose();
         }
 
         public void Dispose()

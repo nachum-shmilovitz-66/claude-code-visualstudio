@@ -91,8 +91,27 @@ namespace ClaudeCode.VisualStudio
                 // check for the rest of the VS session the first time the panel was hidden.
                 var timer = System.Threading.Interlocked.Exchange(ref _cliCheckTimer, null);
                 timer?.Dispose();
-                _session?.Dispose();
+                // The CLI is NOT stopped here. Unloaded fires on every hide - clicking the Solution
+                // Explorer tab beside the panel, auto-hide, re-docking - and stopping the CLI then
+                // killed whatever turn was running; the next prompt resumed a conversation whose
+                // last step had been cut off. The CLI lives until the tool window is destroyed
+                // (Shutdown, from the pane's Dispose) or a new session replaces it.
+                Log.Write("panel hidden (control unloaded); CLI left running" + (_session != null && _session.IsRunning ? "" : " (none running)"));
             };
+        }
+
+        /// <summary>
+        /// The tool window is being destroyed (VS closing, or the window closed for good): stop the
+        /// CLI. Called from the pane's Dispose - unlike Unloaded, which also fires on a plain hide.
+        /// </summary>
+        internal void Shutdown()
+        {
+            try
+            {
+                _session?.Dispose("tool window closed");
+                _session = null;
+            }
+            catch (Exception ex) { Log.Write("Shutdown: " + ex.Message); }
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD100:Avoid async void methods", Justification = "Event handler")]
@@ -1450,7 +1469,7 @@ namespace ClaudeCode.VisualStudio
             var fallback = CliModelList.Fallback();
             _host.PostMessage("init", new
             {
-                version = "1.0.22",
+                version = "1.0.24",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -1771,7 +1790,9 @@ namespace ClaudeCode.VisualStudio
             {
                 // Restart to apply new model/mode but keep the conversation via --resume.
                 resume = _session.SessionId;
-                _session.Dispose();
+                _session.Dispose(_session.IsRunning
+                    ? "relaunch to apply a model/mode/effort change (model=" + _model + " mode=" + _permissionMode + " effort=" + _effort + ")"
+                    : "relaunch; the previous process had already exited");
                 _session = null;
             }
 
@@ -2198,7 +2219,7 @@ namespace ClaudeCode.VisualStudio
             {
                 try
                 {
-                    _session?.Dispose();
+                    _session?.Dispose("retry on a fresh session (the resumed one was gone)");
                     _session = null;
                     _pendingResumeId = null;
                     if (_record != null)
@@ -2235,7 +2256,7 @@ namespace ClaudeCode.VisualStudio
 
         private void ResetSession()
         {
-            _session?.Dispose();
+            _session?.Dispose("new session");
             _session = null;
             _pendingResumeId = null;
             _record = null;
@@ -2302,11 +2323,13 @@ namespace ClaudeCode.VisualStudio
             {
                 foreach (var img in imgs.EnumerateArray())
                 {
-                    list.Add(new ImageInput
+                    // Fitted to the API's working size, so one wide screenshot can't break every
+                    // later turn of a long, image-heavy conversation (see ImageDownscaler).
+                    list.Add(ImageDownscaler.Fit(new ImageInput
                     {
                         MediaType = img.TryGetProperty("mediaType", out var m) ? m.GetString() : "image/png",
                         Data = img.TryGetProperty("data", out var d) ? d.GetString() : null,
-                    });
+                    }));
                 }
             }
             return list.Count > 0 ? list : null;

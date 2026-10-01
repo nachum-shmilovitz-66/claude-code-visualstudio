@@ -147,6 +147,9 @@
     <Compile Include="..\ClaudeCode.VisualStudio\Services\ClaudeDefaults.cs">
       <Link>Services\ClaudeDefaults.cs</Link>
     </Compile>
+    <Compile Include="..\ClaudeCode.VisualStudio\Services\ImageDownscaler.cs">
+      <Link>Services\ImageDownscaler.cs</Link>
+    </Compile>
     <Compile Include="..\ClaudeCode.VisualStudio\Services\CliModelList.cs">
       <Link>Services\CliModelList.cs</Link>
     </Compile>

@@ -39,6 +39,14 @@ namespace ClaudeCode.VisualStudio
                 BitmapImageMoniker = KnownMonikers.CommentSparkle;
 #endif
             }
+
+            // The window is going away for good (VS closing): stop the CLI the panel runs. Hiding
+            // the panel only unloads the control and must leave the CLI - and its turn - running.
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) (Content as ClaudeChatControl)?.Shutdown();
+                base.Dispose(disposing);
+            }
         }
     }
 }

@@ -88,6 +88,7 @@
     <Compile Include="Services\SlashCommandService.cs" />
     <Compile Include="Services\SlashCommandCache.cs" />
     <Compile Include="Services\ClaudeDefaults.cs" />
+    <Compile Include="Services\ImageDownscaler.cs" />
     <Compile Include="Services\CliModelList.cs" />
     <Compile Include="Services\ModelListCache.cs" />
     <Compile Include="Services\ModelPricing.cs" />

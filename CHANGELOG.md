@@ -7,6 +7,28 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.24] - 2026-10-01
+
+- **Hiding the panel no longer kills the turn Claude is running.** Clicking the Solution Explorer or
+  Git Changes tab beside the panel - or auto-hide, or re-docking - unloads the WPF control, and the
+  control's Unloaded handler stopped the CLI. A turn in progress died with it: the next prompt
+  resumed the conversation and Claude reported its last step "cut off when the session ended". The
+  session log showed it every time - `visibility=hidden`, then `stdout closed` a second later. The
+  CLI now lives until the tool window is really destroyed (VS closing) or a new session replaces it,
+  and every stop is logged with its cause (panel hidden, new session, relaunch for a model/mode/
+  effort change, tool window closed), so a cut-off turn is traceable from the log alone.
+
+- **Images are fitted before sending, so a long conversation can't lock up on one screenshot.** Once
+  a request carries more than about 20 images, the API refuses any image over 2000 px on either
+  edge - and since the CLI resends the whole conversation every turn, one wide screenshot pasted
+  early made every later turn fail with "an image in the conversation could not be processed",
+  however small the new image (the model then guessed the new one was "too large"). Pasted and
+  attached images are now scaled so the longest edge is at most 1568 px - the size the API scales
+  them to anyway, so the model sees the same detail - JPEG kept as JPEG, everything else as PNG,
+  and anything that cannot be decoded sent unchanged. When the error still shows up (images sent
+  before this release), the panel explains it and offers **Compact now**, which drops the old
+  images and keeps the conversation.
+
 ## [1.0.22] - 2026-10-01
 
 - **Remote Control: continue a Visual Studio session from claude.ai or the Claude app.** A

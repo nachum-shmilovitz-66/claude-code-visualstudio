@@ -418,8 +418,11 @@
       if (!currentAssistant) { settleThinking(); const n = addNode("text-node", "text"); currentAssistant = { el: n.main, buf: "" }; }
       currentAssistant.buf += p.text || ""; currentAssistant.el.innerHTML = window.md.render(currentAssistant.buf); scrollDown();
     },
-    assistantEnd: () => { settleThinking(); currentAssistant = null; },
-    assistant: (p) => { removeThinking(); settleThinking(); const n = addNode("text-node", "text"); renderBlocks(n.main, p.content || []); currentAssistant = null; scrollDown(); },
+    assistantEnd: () => { settleThinking(); if (currentAssistant) noteImageError(currentAssistant.buf); currentAssistant = null; },
+    assistant: (p) => {
+      removeThinking(); settleThinking(); const n = addNode("text-node", "text"); renderBlocks(n.main, p.content || []); currentAssistant = null; scrollDown();
+      (p.content || []).forEach((b) => { if (b && b.type === "text") noteImageError(b.text); });
+    },
     thinking: (p) => showThinking(p.label),
     thinkingDelta: (p) => appendThinking(p.text),
     toolUse: (p) => { removeThinking(); renderToolUse(p); },
@@ -509,6 +512,7 @@
     // A new session: the host resets model, effort and mode to Claude's defaults and says which.
     clear: (p) => {
       els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear();
+      imageErrorShown = false;
       if (!p || !p.model) return;
       cur.model = p.model; reconcileModelId();
       if (p.effort) cur.effort = p.effort;
@@ -541,6 +545,7 @@
     // from compact_metadata rather than a guess. "auto" means the window filled and the CLI
     // compacted on its own, which is worth labelling differently from a deliberate /compact.
     compacted: (p) => {
+      imageErrorShown = false;   // the old images are gone; a new refusal is news again
       removeThinking(); endTurn();
       const n = document.createElement("div");
       n.className = "compacted-divider";
@@ -1336,6 +1341,28 @@
     if (ro) ro.addEventListener("click", (e) => { e.preventDefault(); post("openExternal", { url: ro.dataset.url }); });
     const rcp = els.cpop.querySelector("#rcCopy");
     if (rcp) rcp.addEventListener("click", () => copyText(rc.url || "").then((ok) => flashCopy(rcp, ok)));
+  }
+
+  // ---- rejected image ----
+  // The CLI reports an image the API refused as "API Error: an image in the conversation could not
+  // be processed and was removed." In a long conversation that is almost always the API's
+  // many-image rule (more than ~20 images, then none may exceed 2000 px) tripping on an image pasted
+  // long ago - and since every turn resends the conversation, every later turn fails the same way
+  // however small the new image is. Compacting drops the old images; say so, once, with the button.
+  const IMAGE_ERROR = /API Error: an image in the conversation could not be processed/i;
+  let imageErrorShown = false;
+  function noteImageError(text) {
+    if (imageErrorShown || !IMAGE_ERROR.test(String(text || ""))) return;
+    imageErrorShown = true;
+    const d = document.createElement("div");
+    d.className = "compacted-divider rc-divider image-error";
+    d.innerHTML = "<span>⚠ The API refused an image already in this conversation, so images can't be read until it's gone. "
+      + '<button class="mini-toggle" id="imgCompact">Compact now</button> drops the old images and keeps the conversation; a new session works too.</span>';
+    d.querySelector("#imgCompact").addEventListener("click", () => {
+      d.remove(); imageErrorShown = false;
+      post("compact"); showThinking("Compacting");
+    });
+    els.messages.appendChild(d); scrollDown();
   }
 
   // ---- Remote Control ----
