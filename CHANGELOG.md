@@ -7,6 +7,22 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.25] - 2026-10-01
+
+- **The line under a finished turn says what the turn cost, not what the conversation has.** It read
+  like "$36.0017 · 8 in · 2805 out · 41.6s", and the dollar figure was the CLI's `total_cost_usd` -
+  the conversation's running total, which the CLI even carries across `--resume` - shown as if it
+  were the turn's. It now reads "$0.42 turn · $36.00 total · 1.2M in · 2.8k out · 41.6s": the turn's
+  share is what the running total grew by, measured from the total recorded with the conversation,
+  so it stays right across a relaunch or a VS restart (only the total is shown when the starting
+  point is unknown). "in" counted only uncached input - often a single-digit number on a turn that
+  read a million tokens from cache - and now counts everything the turn read, with the
+  new / cache-read / cache-write split on hover.
+
+- **The Usage dialog's cost is the conversation's real cost.** Its "Total cost" added each turn's
+  report to the last, and since every report was already a running total, the same spending was
+  counted again on every turn. It is now "Conversation cost", the CLI's own total.
+
 ## [1.0.24] - 2026-10-01
 
 - **Hiding the panel no longer kills the turn Claude is running.** Clicking the Solution Explorer or

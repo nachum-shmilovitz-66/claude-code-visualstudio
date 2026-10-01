@@ -20,6 +20,12 @@ namespace ClaudeCode.VisualStudio.Services
         public string Mode { get; set; } = "default";
         public string Effort { get; set; } = "none";
         public bool ShowThinking { get; set; } = true;
+        /// <summary>
+        /// The CLI's running cost for this conversation (<c>total_cost_usd</c>) after the last turn.
+        /// The CLI carries it across <c>--resume</c>, so it is the baseline the next turn's cost is
+        /// measured from; 0 when unknown (a record saved before it was kept).
+        /// </summary>
+        public double CostUsd { get; set; }
         public List<StoredMessage> Messages { get; set; } = new List<StoredMessage>();
     }
 

@@ -113,6 +113,23 @@ namespace ClaudeCode.VisualStudio.Tests
         }
 
         [TestMethod]
+        public void TurnCost_IsWhatTheRunningTotalGrewBy()
+        {
+            // Two turns in one process (CLI 2.1.286): the second result reported 0.026168 after 0.0193427.
+            Assert.AreEqual(0.0193427, ClaudeSession.TurnCost(0.0193427, 0).Value, 1e-6);
+            Assert.AreEqual(0.0068253, ClaudeSession.TurnCost(0.026168, 0.0193427).Value, 1e-6);
+            // A resumed process starts from the restored total, not from zero.
+            Assert.AreEqual(0.0039252, ClaudeSession.TurnCost(0.0160884, 0.0121632).Value, 1e-6);
+        }
+
+        [TestMethod]
+        public void TurnCost_UnknownStart_OrATotalThatShrank_IsUnknown()
+        {
+            Assert.IsNull(ClaudeSession.TurnCost(36.0017, null));
+            Assert.IsNull(ClaudeSession.TurnCost(1.0, 2.0));
+        }
+
+        [TestMethod]
         public void ThinkingTokensForEffort_IsCaseInsensitive()
         {
             Assert.AreEqual(31999, ClaudeSession.ThinkingTokensForEffort("ULTRACODE"));

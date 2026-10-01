@@ -443,13 +443,26 @@
       if (topOpen === "context") renderContext();
     },
     result: (p) => {
-      const parts = [];
-      if (p.costUsd != null) parts.push("$" + Number(p.costUsd).toFixed(4));
-      if (p.inputTokens != null) parts.push(p.inputTokens + " in");
-      if (p.outputTokens != null) parts.push(p.outputTokens + " out");
+      // "$0.42 turn · $36.00 total · 1.2M in · 2.8k out · 41.6s". The CLI reports the
+      // conversation's running cost; the host works out the turn's share when it knows where the
+      // total stood before. "in" counts everything the turn read, cached or not - the uncached
+      // part alone (often a single-digit number) says nothing about what the turn cost.
+      const parts = [], tips = [];
+      if (p.turnCostUsd != null) { parts.push(money(p.turnCostUsd) + " turn"); tips.push("This turn: $" + Number(p.turnCostUsd).toFixed(4)); }
+      if (p.sessionCostUsd != null) { parts.push(money(p.sessionCostUsd) + " total"); tips.push("Whole conversation so far: $" + Number(p.sessionCostUsd).toFixed(4)); }
+      const fresh = +(p.inputTokens || 0), cRead = +(p.cacheReadTokens || 0), cWrite = +(p.cacheCreationTokens || 0);
+      if (p.inputTokens != null) {
+        parts.push(shortNum(fresh + cRead + cWrite) + " in");
+        tips.push("Input this turn: " + fresh.toLocaleString() + " new + " + cRead.toLocaleString() + " read from cache + " + cWrite.toLocaleString() + " written to cache");
+      }
+      if (p.outputTokens != null) { parts.push(shortNum(+p.outputTokens) + " out"); tips.push("Output this turn: " + Number(p.outputTokens).toLocaleString()); }
       if (p.durationMs != null) parts.push((p.durationMs / 1000).toFixed(1) + "s");
       els.usage.textContent = parts.join(" · ");
-      totals.costUsd += +(p.costUsd || 0); totals.inputTokens += +(p.inputTokens || 0);
+      els.usage.title = tips.join("\n");
+      // The conversation's cost is the CLI's own running total - adding each turn's report up
+      // counted the same spending again on every turn.
+      if (p.sessionCostUsd != null) totals.costUsd = +p.sessionCostUsd;
+      totals.inputTokens += fresh;
       totals.outputTokens += +(p.outputTokens || 0); totals.turns += 1;
       totals.cacheReadTokens += +(p.cacheReadTokens || 0); totals.cacheCreationTokens += +(p.cacheCreationTokens || 0);
       // context window usage. A /compact turn ends with a result whose usage still describes the
@@ -613,6 +626,15 @@
 
   function applyTheme(t) { const r = document.documentElement.style; Object.keys(t).forEach((k) => { if (k.startsWith("--")) r.setProperty(k, t[k]); }); }
   function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+  // $36.00, $0.42, and sub-cent amounts with enough digits to read: $0.0057.
+  function money(v) { v = +v || 0; return "$" + (v > 0 && v < 0.01 ? v.toFixed(4) : v.toFixed(2)); }
+  // 2805 -> "2.8k", 1234567 -> "1.2M".
+  function shortNum(n) {
+    n = +n || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+    return String(n);
+  }
   function fmt(n) { n = +n || 0; if (n >= 1e6) return (n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return (n / 1e3).toFixed(1) + "k"; return String(n); }
   function modeName(id) { const m = modes.find((x) => x.id === id); return m ? m.name : id; }
   function updateModeLabel() { els.modeLabel.textContent = modeName(cur.mode).replace(/ mode$/i, "").replace("Edit automatically", "Auto-edit").replace("Ask before edits", "Ask"); }
@@ -1148,7 +1170,7 @@
     }
 
     h += '<div class="sec" style="margin-top:10px">Session tokens</div>';
-    h += kv("Total cost", "$" + totals.costUsd.toFixed(4));
+    h += kv("Conversation cost", "$" + totals.costUsd.toFixed(4));
     h += kv("Turns", totals.turns);
     h += kv("Input (fresh)", totals.inputTokens.toLocaleString());
     h += kv("Cache write", totals.cacheCreationTokens.toLocaleString());

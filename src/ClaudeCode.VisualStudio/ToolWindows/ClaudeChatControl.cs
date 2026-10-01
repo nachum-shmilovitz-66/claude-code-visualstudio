@@ -55,6 +55,10 @@ namespace ClaudeCode.VisualStudio
         private bool _remoteControlUserSet;   // the user toggled it, so the CLI's auto-start default no longer applies
         private string _remoteControlUrl;
         private bool? _remoteControlAvailable;
+
+        // The conversation's running cost (the CLI's total_cost_usd) as of the last result, so a
+        // turn's own cost is the difference; null when it is not known (see EnsureSession).
+        private double? _costBaseline;
         private bool _updateWatchRunning;     // polling for a `claude update` to land
         private bool _updateRunning;          // a background `claude update` process is in flight
         private System.Threading.Timer _cliCheckTimer;   // hourly re-check for a newer CLI
@@ -1469,7 +1473,7 @@ namespace ClaudeCode.VisualStudio
             var fallback = CliModelList.Fallback();
             _host.PostMessage("init", new
             {
-                version = "1.0.24",
+                version = "1.0.25",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -1814,6 +1818,11 @@ namespace ClaudeCode.VisualStudio
 
             _optionsDirty = false;
 
+            // Where this process's running cost starts: 0 for a new conversation; for a resumed one,
+            // the total the CLI reported last time (it restores it). Unknown if never recorded.
+            _costBaseline = resume == null ? 0
+                : (_record != null && _record.SessionId == resume && _record.CostUsd > 0 ? _record.CostUsd : (double?)null);
+
             var options = new ClaudeSessionOptions
             {
                 WorkingDirectory = _cwd,
@@ -1911,9 +1920,19 @@ namespace ClaudeCode.VisualStudio
             });
             s.Result += r =>
             {
+                // The CLI's total_cost_usd is the conversation's running total (carried across
+                // --resume), not the turn's: the turn is what it grew by since the last result.
+                double? turnCost = ClaudeSession.TurnCost(r.CostUsd, _costBaseline);
+                _costBaseline = r.CostUsd;
+                if (r.CostUsd > 0)
+                {
+                    if (_record == null) _record = new SessionRecord();
+                    _record.CostUsd = r.CostUsd;     // saved with the turn below (AppendHistory)
+                }
                 _host.PostMessage("result", new
                 {
-                    costUsd = r.CostUsd,
+                    turnCostUsd = turnCost,
+                    sessionCostUsd = r.CostUsd,
                     inputTokens = r.InputTokens,
                     outputTokens = r.OutputTokens,
                     cacheReadTokens = r.CacheReadTokens,

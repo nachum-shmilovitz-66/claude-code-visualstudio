@@ -220,13 +220,32 @@ describe("turn status", () => {
     assert.ok(app.$("stopBtn").classList.contains("hidden"));
   });
 
-  it("reports cost and tokens when a turn finishes", () => {
+  it("reports the turn's cost beside the conversation's, and every token the turn read", () => {
     const app = booted();
-    app.pushMessage("result", { costUsd: 0.0123, inputTokens: 100, outputTokens: 250, durationMs: 3400 });
+    // The shape of the line that read "$36.0017 · 8 in · 2805 out · 41.6s".
+    app.pushMessage("result", { turnCostUsd: 0.4213, sessionCostUsd: 36.0017, inputTokens: 8, cacheReadTokens: 1200000,
+      cacheCreationTokens: 4000, outputTokens: 2805, durationMs: 41600 });
 
     const usage = app.$("usage").textContent;
-    assert.ok(usage.includes("$0.0123"), usage);
-    assert.ok(usage.includes("100 in") && usage.includes("250 out"), usage);
-    assert.ok(usage.includes("3.4s"), usage);
+    assert.strictEqual(usage, "$0.42 turn · $36.00 total · 1.2M in · 2.8k out · 41.6s");
+    const tip = app.$("usage").title;
+    assert.ok(tip.includes("8 new + 1,200,000 read from cache + 4,000 written to cache"), tip);
+    assert.ok(tip.includes("Whole conversation so far: $36.0017"), tip);
+  });
+
+  it("shows only the conversation total when the turn's share is unknown, and sub-cent costs readably", () => {
+    const app = booted();
+    app.pushMessage("result", { turnCostUsd: null, sessionCostUsd: 0.0057, inputTokens: 100, outputTokens: 250, durationMs: 3400 });
+    assert.strictEqual(app.$("usage").textContent, "$0.0057 total · 100 in · 250 out · 3.4s");
+  });
+
+  it("keeps the Usage total at the conversation's cost instead of adding running totals up", () => {
+    const app = booted();
+    app.pushMessage("result", { turnCostUsd: 0.5, sessionCostUsd: 10, inputTokens: 1, outputTokens: 1 });
+    app.pushMessage("result", { turnCostUsd: 0.25, sessionCostUsd: 10.25, inputTokens: 1, outputTokens: 1 });
+    app.$("usageBtn").click();
+    const pop = app.$("popover").textContent;
+    assert.ok(pop.includes("Conversation cost") && pop.includes("$10.2500"), pop);
+    assert.ok(!pop.includes("$20.25"), "the old sum of running totals");
   });
 });

@@ -387,6 +387,17 @@ namespace ClaudeCode.VisualStudio.Services
             return true;
         }
 
+        /// <summary>
+        /// A turn's cost from the CLI's <c>total_cost_usd</c> - the conversation's running total,
+        /// carried across <c>--resume</c> - and the total before the turn. Null when that starting
+        /// point is unknown or the total went backwards (it never should).
+        /// </summary>
+        internal static double? TurnCost(double sessionTotal, double? before)
+        {
+            if (!before.HasValue || sessionTotal < before.Value) return null;
+            return Math.Round(sessionTotal - before.Value, 6);
+        }
+
         internal static int ThinkingTokensForEffort(string effort)
         {
             switch ((effort ?? "").ToLowerInvariant())
