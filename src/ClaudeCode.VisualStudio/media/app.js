@@ -494,6 +494,18 @@
       if (ctx.model && ctx.model !== p.model) ctx.windowReported = false;
       ctx.model = p.model; updateModelBtn(); updateRing();
     },
+    remoteControl: (p) => {
+      const prev = rc.url;
+      rc.available = !!p.available;
+      rc.on = !!p.on;
+      rc.url = typeof p.url === "string" && /^https:\/\/claude\.ai\//i.test(p.url) ? p.url : null;
+      if (rc.url && rc.url !== prev) {
+        rcDivider('Remote Control on — continue at <a class="ulink" href="#">' + window.md.esc(rc.url.replace(/^https:\/\//, "")) + "</a>", rc.url);
+      }
+      if (p.error) rcDivider("⚠ Remote Control: " + window.md.esc(p.error));
+      updateRcIndicator();
+      if (cOpen === "mode") renderMode();
+    },
     // A new session: the host resets model, effort and mode to Claude's defaults and says which.
     clear: (p) => {
       els.messages.innerHTML = ""; els.usage.textContent = ""; endTurn(); toolCards.clear();
@@ -1306,10 +1318,47 @@
       h += '<div class="opt' + (m.id === cur.mode ? " sel" : "") + '" data-id="' + m.id + '"><div class="oicon">' + (m.icon || "") + '</div><div class="obody"><div class="oname">' + window.md.esc(m.name) + '</div><div class="odesc">' + window.md.esc(m.desc || "") + '</div></div>' + (m.id === cur.mode ? '<div class="ochk">✓</div>' : "") + "</div>";
     });
     h += '<div class="effort-row"><div class="elabel">Show thinking <small>(stream reasoning)</small></div><button class="mini-toggle' + (thinkingVisible ? " on" : "") + '" id="thinkToggle">' + (thinkingVisible ? "On" : "Off") + '</button></div>';
+    if (rc.available) {
+      h += '<div class="effort-row"><div class="elabel">Remote Control <small>(continue from claude.ai or the Claude app)</small></div><button class="mini-toggle' + (rc.on ? " on" : "") + '" id="rcToggle">' + (rc.on ? "On" : "Off") + '</button></div>';
+      if (rc.on && rc.url) {
+        h += '<div class="rc-link"><a class="ulink" href="#" id="rcOpen" data-url="' + window.md.esc(rc.url) + '">' + window.md.esc(rc.url.replace(/^https:\/\//, "")) + '</a> <button class="mini-toggle" id="rcCopy">Copy</button></div>';
+      } else if (rc.on) {
+        h += '<div class="note rc-link">Connecting…</div>';
+      }
+    }
     showC(h);
     els.cpop.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { cur.mode = o.dataset.id; post("setPermissionMode", { mode: cur.mode }); updateModeLabel(); closeC(); }));
     const tt = els.cpop.querySelector("#thinkToggle");
     if (tt) tt.addEventListener("click", () => { thinkingVisible = !thinkingVisible; post("setShowThinking", { on: thinkingVisible }); applyThinkingVisibility(); renderMode(); });
+    const rt = els.cpop.querySelector("#rcToggle");
+    if (rt) rt.addEventListener("click", () => { setRemoteControl(!rc.on); renderMode(); });
+    const ro = els.cpop.querySelector("#rcOpen");
+    if (ro) ro.addEventListener("click", (e) => { e.preventDefault(); post("openExternal", { url: ro.dataset.url }); });
+    const rcp = els.cpop.querySelector("#rcCopy");
+    if (rcp) rcp.addEventListener("click", () => copyText(rc.url || "").then((ok) => flashCopy(rcp, ok)));
+  }
+
+  // ---- Remote Control ----
+  // The host owns the state (it applies it to every CLI process it starts); the page mirrors it.
+  // `available` stays false until the host has heard from the CLI, so the toggle never offers
+  // something the account cannot use.
+  const rc = { available: false, on: false, url: null };
+  function setRemoteControl(on) {
+    rc.on = on; if (!on) rc.url = null;
+    post("setRemoteControl", { on: on });
+    updateRcIndicator();
+  }
+  function updateRcIndicator() {
+    els.modeBtn.classList.toggle("rc-on", rc.on);
+    els.modeBtn.title = "Permission mode" + (rc.on ? " — Remote Control is " + (rc.url ? "on" : "connecting") : "");
+  }
+  function rcDivider(html, url) {
+    const d = document.createElement("div");
+    d.className = "compacted-divider rc-divider";
+    d.innerHTML = "<span>" + html + "</span>";
+    const a = d.querySelector(".ulink");
+    if (a) a.addEventListener("click", (e) => { e.preventDefault(); post("openExternal", { url: url }); });
+    els.messages.appendChild(d); scrollDown();
   }
 
   // ---- @-mention file picker ----
@@ -1357,7 +1406,9 @@
       { name: "compact", desc: "Compact the conversation", run: () => { post("compact"); showThinking("Compacting"); } },
       { name: "clear", desc: "Clear the chat", run: () => handlers.clear() },
       { name: "new", desc: "Start a new session", run: () => { resetTotals(); post("newSession"); } },
-    ];
+    ].concat(rc.available ? [
+      { name: "remote-control", desc: "Turn Remote Control " + (rc.on ? "off" : "on") + " (continue from claude.ai or the Claude app)", run: () => setRemoteControl(!rc.on) },
+    ] : []);
   }
   function openSlash() {
     closeTop(); cOpen = "slash"; activeC();

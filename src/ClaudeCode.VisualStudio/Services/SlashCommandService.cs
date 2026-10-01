@@ -24,6 +24,18 @@ namespace ClaudeCode.VisualStudio.Services
         /// <c>get_context_usage</c> reply; 0 when it did not say.
         /// </summary>
         public long DefaultContextWindow;
+
+        /// <summary>
+        /// Whether this account and CLI can use Remote Control (<c>remote_control_available</c> on
+        /// the initialize reply); null when the CLI did not say (an older CLI).
+        /// </summary>
+        public bool? RemoteControlAvailable;
+
+        /// <summary>
+        /// Whether the CLI would turn Remote Control on at session start (the user's
+        /// <c>remoteControlAtStartup</c> setting, or an org default) - IDE hosts mirror it.
+        /// </summary>
+        public bool RemoteControlAutoEnable;
     }
 
     /// <summary>
@@ -102,6 +114,7 @@ namespace ClaudeCode.VisualStudio.Services
                             else if (!modelsSeen && CliModelList.TryParseControlResponse(e.Data, models))
                             {
                                 modelsSeen = true;
+                                ReadRemoteControlFlags(e.Data, result);
                                 finish = initSeen && ctxSeen;
                             }
                             else if (!initSeen && TryParseInit(e.Data, result.Commands))
@@ -158,6 +171,25 @@ namespace ClaudeCode.VisualStudio.Services
                 Log.Write("SlashCommandService.ProbeAsync: " + ex.Message);
             }
             return result;
+        }
+
+        // The Remote Control flags on the CLI's initialize reply. Absent fields leave the defaults
+        // (availability unknown, no auto-start).
+        internal static void ReadRemoteControlFlags(string line, CliProbeResult into)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(line))
+                {
+                    JsonElement outer, inner, v;
+                    if (!doc.RootElement.TryGetProperty("response", out outer) || outer.ValueKind != JsonValueKind.Object ||
+                        !outer.TryGetProperty("response", out inner) || inner.ValueKind != JsonValueKind.Object) return;
+                    if (inner.TryGetProperty("remote_control_available", out v) && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False))
+                        into.RemoteControlAvailable = v.ValueKind == JsonValueKind.True;
+                    into.RemoteControlAutoEnable = inner.TryGetProperty("remote_control_auto_enable", out v) && v.ValueKind == JsonValueKind.True;
+                }
+            }
+            catch { }
         }
 
         // Returns true (and fills <paramref name="into"/>) when the line is the system/init

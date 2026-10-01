@@ -84,4 +84,13 @@ namespace ClaudeCode.VisualStudio.Services
         public long PostTokens;
         public long DurationMs;
     }
+
+    /// <summary>The CLI's answer to a <c>remote_control</c> request.</summary>
+    public sealed class RemoteControlInfo
+    {
+        public bool Enabled;           // the state the CLI is now in
+        public string SessionUrl;      // claude.ai/code/session_... when on; null otherwise
+        public string BridgeSessionId;
+        public string Error;           // set when the CLI refused (not signed in, policy, ...)
+    }
 }

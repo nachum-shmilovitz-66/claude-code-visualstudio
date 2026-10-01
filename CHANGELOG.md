@@ -7,6 +7,22 @@ follow the `source.extension.vsixmanifest` Identity version. Releases are publis
 
 ## [Unreleased]
 
+## [1.0.22] - 2026-10-01
+
+- **Remote Control: continue a Visual Studio session from claude.ai or the Claude app.** A
+  **Remote Control** switch in the permission-mode popover (and a `/remote-control` palette command)
+  bridges the panel's CLI session to claude.ai/code, the same way `claude --remote-control` does in
+  a terminal. The CLI already accepts a `remote_control` control request on the stream-json channel
+  the panel runs it over, and answers with the session's link; the chat shows that link (it opens
+  in the browser), the popover repeats it with a Copy button, and a green dot on the mode button
+  marks a session that is reachable from outside. Turning it on before the first prompt starts the
+  CLI right away, so the session is reachable without typing anything in VS. It stays on across a
+  new session and across the relaunch a model or effort change causes - each new process gets a new
+  link, announced in the chat. The switch appears only when the CLI says the account can use Remote
+  Control, starts on when Claude's settings ask for it at startup (`remoteControlAtStartup`), and a
+  refusal (not signed in, org policy) is reported in the chat. Only claude.ai links are ever shown as
+  links.
+
 ## [1.0.21] - 2026-10-01
 
 - **The model picker shows one row per family.** CLI 2.1.286 lists every model it can still run -

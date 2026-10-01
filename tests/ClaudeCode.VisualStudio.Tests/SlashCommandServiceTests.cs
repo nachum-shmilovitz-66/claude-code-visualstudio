@@ -63,5 +63,33 @@ namespace ClaudeCode.VisualStudio.Tests
             Assert.IsFalse(SlashCommandService.TryParseInit("not json", into));
             Assert.IsFalse(SlashCommandService.TryParseInit("[1,2,3]", into));
         }
+
+        private static string InitializeReply(string flags) =>
+            "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_probe_init\",\"response\":{\"models\":[]" + flags + "}}}";
+
+        [TestMethod]
+        public void ReadRemoteControlFlags_ReadsAvailabilityAndAutoStart()
+        {
+            var r = new CliProbeResult();
+            SlashCommandService.ReadRemoteControlFlags(InitializeReply(",\"remote_control_available\":true,\"remote_control_auto_enable\":false"), r);
+            Assert.AreEqual(true, r.RemoteControlAvailable);
+            Assert.IsFalse(r.RemoteControlAutoEnable);
+
+            r = new CliProbeResult();
+            SlashCommandService.ReadRemoteControlFlags(InitializeReply(",\"remote_control_available\":false,\"remote_control_auto_enable\":true"), r);
+            Assert.AreEqual(false, r.RemoteControlAvailable);
+            Assert.IsTrue(r.RemoteControlAutoEnable);
+        }
+
+        [TestMethod]
+        public void ReadRemoteControlFlags_OlderCli_LeavesAvailabilityUnknown()
+        {
+            var r = new CliProbeResult();
+            SlashCommandService.ReadRemoteControlFlags(InitializeReply(""), r);
+            Assert.IsNull(r.RemoteControlAvailable);
+            Assert.IsFalse(r.RemoteControlAutoEnable);
+            SlashCommandService.ReadRemoteControlFlags("not json", r);
+            Assert.IsNull(r.RemoteControlAvailable);
+        }
     }
 }

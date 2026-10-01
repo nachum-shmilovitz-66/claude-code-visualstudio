@@ -202,6 +202,10 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", syste
 .ring .ring-fg { fill: none; stroke: var(--ring); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 94.2; stroke-dashoffset: 94.2; transition: stroke-dashoffset .3s; }
 .mode-pill { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 14px; background: transparent; color: var(--fg); cursor: pointer; font-size: 12px; font-weight: 600; }
 .mode-pill:hover { border-color: var(--accent); }
+/* Remote Control on: a dot on the mode pill, so a session reachable from claude.ai is never invisible. */
+.mode-pill.rc-on::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.rc-link { display: flex; align-items: center; gap: 8px; padding: 2px 12px 8px; font-size: 12px; overflow-wrap: anywhere; }
+.rc-divider span { white-space: normal; text-align: center; }
 .send, .stop { border: none; border-radius: 6px; height: 28px; cursor: pointer; font-weight: 600; }
 .send { background: var(--accent); color: var(--accent-fg); padding: 0 14px; }
 .send:disabled { opacity: .5; }

@@ -58,6 +58,61 @@ namespace ClaudeCode.VisualStudio.Tests
         }
 
         [TestMethod]
+        public void BuildRemoteControlRequest_MatchesTheCliSchema()
+        {
+            using (var on = System.Text.Json.JsonDocument.Parse(ClaudeSession.BuildRemoteControlRequest("req_rc_1", true, " app (Visual Studio) ")))
+            {
+                var r = on.RootElement;
+                Assert.AreEqual("control_request", r.GetProperty("type").GetString());
+                Assert.AreEqual("req_rc_1", r.GetProperty("request_id").GetString());
+                var req = r.GetProperty("request");
+                Assert.AreEqual("remote_control", req.GetProperty("subtype").GetString());
+                Assert.IsTrue(req.GetProperty("enabled").GetBoolean());
+                Assert.AreEqual("app (Visual Studio)", req.GetProperty("name").GetString());
+            }
+            using (var off = System.Text.Json.JsonDocument.Parse(ClaudeSession.BuildRemoteControlRequest("req_rc_2", false, "ignored")))
+            {
+                var req = off.RootElement.GetProperty("request");
+                Assert.IsFalse(req.GetProperty("enabled").GetBoolean());
+                Assert.IsFalse(req.TryGetProperty("name", out _), "turning it off names nothing");
+            }
+        }
+
+        private static RemoteControlInfo ParseRc(string responseJson, bool enabled)
+        {
+            using (var doc = System.Text.Json.JsonDocument.Parse(responseJson))
+                return ClaudeSession.ParseRemoteControlResponse(doc.RootElement, enabled);
+        }
+
+        [TestMethod]
+        public void ParseRemoteControlResponse_ReadsTheSessionLink()
+        {
+            // The response object CLI 2.1.286 sends back (captured 2026-10-01).
+            var rc = ParseRc("{\"subtype\":\"success\",\"request_id\":\"rc1\",\"response\":{\"session_url\":\"https://claude.ai/code/session_01AXxzQLenDiPAXUiRhTEjph\"," +
+                             "\"connect_url\":\"https://claude.ai/code?environment=\",\"environment_id\":\"\",\"bridge_epoch\":1,\"bridge_session_id\":\"cse_01AXxzQLenDiPAXUiRhTEjph\"}}", true);
+            Assert.IsTrue(rc.Enabled);
+            Assert.AreEqual("https://claude.ai/code/session_01AXxzQLenDiPAXUiRhTEjph", rc.SessionUrl);
+            Assert.AreEqual("cse_01AXxzQLenDiPAXUiRhTEjph", rc.BridgeSessionId);
+            Assert.IsNull(rc.Error);
+
+            var off = ParseRc("{\"subtype\":\"success\",\"request_id\":\"rc2\"}", false);
+            Assert.IsFalse(off.Enabled);
+            Assert.IsNull(off.SessionUrl);
+        }
+
+        [TestMethod]
+        public void ParseRemoteControlResponse_ReportsARefusal_AndLinksOnlyClaudeAi()
+        {
+            var err = ParseRc("{\"subtype\":\"error\",\"request_id\":\"rc1\",\"error\":\"Remote Control is disabled by policy\"}", true);
+            Assert.IsFalse(err.Enabled);
+            Assert.AreEqual("Remote Control is disabled by policy", err.Error);
+
+            var odd = ParseRc("{\"subtype\":\"success\",\"response\":{\"session_url\":\"https://evil.example/x\"}}", true);
+            Assert.IsTrue(odd.Enabled);
+            Assert.IsNull(odd.SessionUrl);
+        }
+
+        [TestMethod]
         public void ThinkingTokensForEffort_IsCaseInsensitive()
         {
             Assert.AreEqual(31999, ClaudeSession.ThinkingTokensForEffort("ULTRACODE"));

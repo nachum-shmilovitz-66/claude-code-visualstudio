@@ -47,6 +47,14 @@ namespace ClaudeCode.VisualStudio
         private bool _resumeRetried;          // one replay per turn, never a restart loop
         private string _pendingResumeId;      // CLI session id to --resume on next start (restore)
         private bool _solutionHooked;         // subscribed to solution-load events (restore retry)
+
+        // Remote Control: whether the user wants this session reachable from claude.ai/code and the
+        // Claude apps (applied to every CLI process this panel starts), the link the CLI gave for
+        // the running one, and whether the account can use it at all (null until the probe says).
+        private bool _remoteControl;
+        private bool _remoteControlUserSet;   // the user toggled it, so the CLI's auto-start default no longer applies
+        private string _remoteControlUrl;
+        private bool? _remoteControlAvailable;
         private bool _updateWatchRunning;     // polling for a `claude update` to land
         private bool _updateRunning;          // a background `claude update` process is in flight
         private System.Threading.Timer _cliCheckTimer;   // hourly re-check for a newer CLI
@@ -229,6 +237,9 @@ namespace ClaudeCode.VisualStudio
                     _effort = InputValidation.SanitizeChoice(GetStr(message.Payload, "effort"), InputValidation.AllowedEfforts, "none");
                     _optionsDirty = true;
                     SaveOptions();
+                    break;
+                case "setRemoteControl":
+                    SetRemoteControl(GetBool(message.Payload, "on", false));
                     break;
                 case "setShowThinking":
                     _showThinking = GetBool(message.Payload, "on", true);
@@ -549,6 +560,17 @@ namespace ClaudeCode.VisualStudio
                             SlashCommandCache.Save(_cwd, probe.Commands);
                             _host.PostMessage("commands", new { commands = probe.Commands });
                         }
+                        // ...and with whether Remote Control is available, and whether the CLI would
+                        // start it on its own (remoteControlAtStartup) - mirrored unless the user
+                        // has toggled it here.
+                        if (probe.RemoteControlAvailable.HasValue) _remoteControlAvailable = probe.RemoteControlAvailable;
+                        if (probe.RemoteControlAutoEnable && _remoteControlAvailable != false && !_remoteControlUserSet && !_remoteControl)
+                        {
+                            _remoteControl = true;
+                            if (_session != null && _session.IsRunning) _session.SetRemoteControl(true, RemoteControlName());
+                        }
+                        PostRemoteControl(null);
+
                         // The same probe answers with the models this CLI and account can use.
                         var liveModels = probe.Models != null && probe.Models.Count > 0 ? probe.Models : null;
                         if (liveModels != null)
@@ -1428,7 +1450,7 @@ namespace ClaudeCode.VisualStudio
             var fallback = CliModelList.Fallback();
             _host.PostMessage("init", new
             {
-                version = "1.0.21",
+                version = "1.0.22",
                 theme = _theme.GetThemeVariables(),
                 model = _model,
                 effort = _effort,
@@ -1450,6 +1472,8 @@ namespace ClaudeCode.VisualStudio
                 },
                 effortsByModel = CliModelList.EffortsByModel(fallback),
             });
+            // A reloaded page picks the Remote Control state back up.
+            if (_remoteControl || _remoteControlAvailable.HasValue) PostRemoteControl(null);
 
             ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
@@ -1782,6 +1806,49 @@ namespace ClaudeCode.VisualStudio
             _session = new ClaudeSession(options);
             HookSession(_session);
             _session.Start();
+            if (_remoteControl && _session.SetRemoteControl(true, RemoteControlName())) PostRemoteControl(null);
+        }
+
+        // Session name shown in claude.ai/code and the Claude apps: the project folder.
+        private string RemoteControlName()
+        {
+            try
+            {
+                var folder = System.IO.Path.GetFileName((_cwd ?? "").TrimEnd('\\', '/'));
+                return string.IsNullOrEmpty(folder) ? "Visual Studio" : folder + " (Visual Studio)";
+            }
+            catch { return "Visual Studio"; }
+        }
+
+        // Turns Remote Control on or off. On needs a running CLI process: with no conversation
+        // started yet, one is started now (idle, no message sent) so the session is reachable
+        // straight away rather than only after the first prompt typed in VS.
+        private void SetRemoteControl(bool on)
+        {
+            _remoteControlUserSet = true;
+            _remoteControl = on;
+            if (on)
+            {
+                if (_session != null && _session.IsRunning) _session.SetRemoteControl(true, RemoteControlName());
+                else EnsureSession();                 // sends the request itself once the process is up
+            }
+            else
+            {
+                _session?.SetRemoteControl(false, null);
+                _remoteControlUrl = null;
+            }
+            PostRemoteControl(null);
+        }
+
+        private void PostRemoteControl(string error)
+        {
+            _host.PostMessage("remoteControl", new
+            {
+                available = _remoteControlAvailable != false,
+                on = _remoteControl,
+                url = _remoteControlUrl,
+                error = error,
+            });
         }
 
         private void HookSession(ClaudeSession s)
@@ -1857,6 +1924,20 @@ namespace ClaudeCode.VisualStudio
             s.PermissionAutoAllowed += id => _host.PostMessage("permissionResolved", new { id, behavior = "allow" });
             // The CLI refused the live switch — fall back to relaunching with the new mode.
             s.PermissionModeChangeFailed += m => _optionsDirty = true;
+
+            s.RemoteControlChanged += rc =>
+            {
+                if (s != _session) return;            // a reply from a process already replaced
+                if (rc.Error != null) _remoteControl = false;
+                _remoteControlUrl = rc.Enabled ? rc.SessionUrl : null;
+                PostRemoteControl(rc.Error);
+            };
+            s.Exited += code =>
+            {
+                if (s != _session || _remoteControlUrl == null) return;
+                _remoteControlUrl = null;             // the bridge ends with the process; the next start re-enables it
+                PostRemoteControl(null);
+            };
             s.ErrorEvent += m => _host.PostMessage("error", new { message = m });
             s.Exited += code =>
             {
@@ -2161,6 +2242,11 @@ namespace ClaudeCode.VisualStudio
             SessionStore.Clear(_cwd);
             ApplyNewSessionDefaults();
             _host.PostMessage("clear", new { model = _model, mode = _permissionMode, effort = _effort });
+            // Remote Control stays on across a new session: start its process now so the new
+            // session is reachable (with a new link) without waiting for a prompt typed here.
+            _remoteControlUrl = null;
+            if (_remoteControl) EnsureSession();
+            PostRemoteControl(null);
         }
 
         // Model, effort and permission mode a new session starts on: Claude's own defaults (the

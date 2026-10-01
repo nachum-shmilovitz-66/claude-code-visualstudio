@@ -60,6 +60,8 @@ namespace ClaudeCode.VisualStudio.Services
         // answers with a control_response; success applies the mode to the *running* process (no
         // restart), an error tells the caller to fall back to relaunching with the new mode.
         private readonly Dictionary<string, string> _pendingModeSwitch = new Dictionary<string, string>(StringComparer.Ordinal);
+        // remote_control requests in flight: request id -> enabled.
+        private readonly Dictionary<string, bool> _pendingRemoteControl = new Dictionary<string, bool>(StringComparer.Ordinal);
 
         // The mode the running process is actually in (launch mode, then whatever a successful
         // set_permission_mode switched it to).
@@ -98,6 +100,8 @@ namespace ClaudeCode.VisualStudio.Services
         public event Action<string> PermissionAutoAllowed;
         // The CLI refused a live mode switch; the caller should relaunch with the new mode.
         public event Action<string> PermissionModeChangeFailed;
+        /// <summary>The CLI answered a <see cref="SetRemoteControl"/> request.</summary>
+        public event Action<RemoteControlInfo> RemoteControlChanged;
         public event Action<CompactInfo> Compacted;
         public event Action<string> ErrorEvent;
         public event Action<int> Exited;
@@ -239,6 +243,56 @@ namespace ClaudeCode.VisualStudio.Services
             };
             WriteLine(JsonSerializer.Serialize(msg));
             return true;
+        }
+
+        /// <summary>
+        /// Turns Remote Control on or off for the running process: the CLI bridges the session to
+        /// claude.ai/code (and the Claude apps), and answers with the session's URL. Returns false
+        /// when there is no running process; the answer arrives on <see cref="RemoteControlChanged"/>.
+        /// </summary>
+        public bool SetRemoteControl(bool enabled, string name)
+        {
+            if (!IsRunning) return false;
+            var id = "req_rc_" + Interlocked.Increment(ref _controlSeq).ToString(CultureInfo.InvariantCulture);
+            lock (_permLock) { _pendingRemoteControl[id] = enabled; }
+            WriteLine(BuildRemoteControlRequest(id, enabled, name));
+            return true;
+        }
+
+        internal static string BuildRemoteControlRequest(string requestId, bool enabled, string name)
+        {
+            var request = new Dictionary<string, object> { ["subtype"] = "remote_control", ["enabled"] = enabled };
+            if (enabled && !string.IsNullOrWhiteSpace(name)) request["name"] = name.Trim();
+            return JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["type"] = "control_request",
+                ["request_id"] = requestId,
+                ["request"] = request,
+            });
+        }
+
+        /// <summary>
+        /// Reads the CLI's reply to a <c>remote_control</c> request (the <c>response</c> object of
+        /// the control_response): success carries <c>session_url</c>; an error carries <c>error</c>.
+        /// </summary>
+        internal static RemoteControlInfo ParseRemoteControlResponse(JsonElement resp, bool enabled)
+        {
+            var info = new RemoteControlInfo { Enabled = enabled };
+            if (string.Equals(GetString(resp, "subtype"), "error", StringComparison.Ordinal))
+            {
+                info.Enabled = false;
+                info.Error = GetString(resp, "error") ?? "Remote Control could not be started";
+                return info;
+            }
+            if (enabled && resp.TryGetProperty("response", out var body) && body.ValueKind == JsonValueKind.Object)
+            {
+                var url = GetString(body, "session_url");
+                // Only a claude.ai link is shown as one: the page opens it in the browser.
+                if (!string.IsNullOrEmpty(url) && url.StartsWith("https://claude.ai/", StringComparison.OrdinalIgnoreCase))
+                    info.SessionUrl = url;
+                info.BridgeSessionId = GetString(body, "bridge_session_id");
+            }
+            return info;
         }
 
         // Answers every permission card still on screen with "allow". Only called after the CLI
@@ -778,14 +832,28 @@ namespace ClaudeCode.VisualStudio.Services
             }
         }
 
-        // Replies to control requests *we* sent. Only set_permission_mode is tracked: success means
-        // the running process is now in that mode, error means it refused and the caller must
-        // relaunch to apply it.
+        // Replies to control requests *we* sent: remote_control (see SetRemoteControl), and
+        // set_permission_mode, where success means the running process is now in that mode and
+        // error means it refused and the caller must relaunch to apply it.
         private void HandleControlResponse(JsonElement root)
         {
             if (!root.TryGetProperty("response", out var resp)) return;
             var requestId = GetString(resp, "request_id");
             if (string.IsNullOrEmpty(requestId)) return;
+
+            bool rcEnabled, isRemoteControl;
+            lock (_permLock)
+            {
+                isRemoteControl = _pendingRemoteControl.TryGetValue(requestId, out rcEnabled);
+                if (isRemoteControl) _pendingRemoteControl.Remove(requestId);
+            }
+            if (isRemoteControl)
+            {
+                var rc = ParseRemoteControlResponse(resp, rcEnabled);
+                Log.Write("remote_control " + (rcEnabled ? "on" : "off") + (rc.Error != null ? " failed: " + rc.Error : rc.SessionUrl != null ? " -> " + rc.SessionUrl : ""));
+                RemoteControlChanged?.Invoke(rc);
+                return;
+            }
 
             string mode;
             lock (_permLock)
